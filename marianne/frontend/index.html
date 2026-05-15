@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marianne — Assistant Administratif</title>
+    <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-logo">
+                <span class="logo-icon">🇫🇷</span>
+                <h1>Marianne</h1>
+                <span class="subtitle">Assistant Administratif</span>
+            </div>
+            <div class="header-status" id="status-indicator">
+                <span class="status-dot"></span>
+                <span class="status-text">Initialisation...</span>
+            </div>
+        </header>
+
+        <!-- Zone principale -->
+        <main class="chat-container">
+            <!-- Messages -->
+            <div class="messages" id="messages">
+                <div class="welcome-message">
+                    <h2>Bonjour ! Je suis Marianne 🇫🇷</h2>
+                    <p>Votre assistante administrative française, 100% locale et confidentielle.</p>
+                    <p>Posez-moi vos questions sur :</p>
+                    <ul>
+                        <li>📋 Droit du travail (contrats, licenciement, congés)</li>
+                        <li>💶 Aides sociales (CAF, RSA, APL)</li>
+                        <li>🏢 URSSAF et auto-entreprise</li>
+                        <li>🏠 Droits des locataires</li>
+                        <li>✉️ Rédaction de courriers officiels</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Zone de saisie -->
+            <div class="input-area">
+                <div class="input-wrapper">
+                    <textarea
+                        id="user-input"
+                        placeholder="Posez votre question administrative..."
+                        rows="1"
+                        autofocus
+                    ></textarea>
+                    <button id="send-btn" class="send-button" disabled>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="input-footer">
+                    <span class="privacy-badge">🔒 Vos données restent sur cet appareil</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Setup modal (téléchargement du modèle) -->
+    <div class="modal" id="setup-modal" style="display: none;">
+        <div class="modal-content">
+            <h2>🇫🇷 Configuration initiale</h2>
+            <p>Marianne doit télécharger son modèle d'intelligence artificielle (~2.2 Go).</p>
+            <p>Ce téléchargement n'a lieu qu'une seule fois.</p>
+
+            <div class="progress-container" id="download-progress" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <span class="progress-text" id="progress-text">0%</span>
+            </div>
+
+            <button id="download-btn" class="primary-button">
+                Télécharger Marianne
+            </button>
+        </div>
+    </div>
+
+    <script src="vendor/marked.min.js"></script>
+    <script src="scripts/app.js"></script>
+</body>
+</html>

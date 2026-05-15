@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicedoc/schema/master/tauri.schema.json",
+  "productName": "Marianne",
+  "version": "1.0.0",
+  "identifier": "fr.marianne.app",
+  "build": {
+    "frontendDist": "../frontend",
+    "devUrl": "http://localhost:1420"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Marianne — Assistant Administratif",
+        "width": 1024,
+        "height": 768,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://huggingface.co https://service-public.fr https://www.service-public.fr https://legifrance.gouv.fr https://www.legifrance.gouv.fr https://urssaf.fr https://www.urssaf.fr https://autoentrepreneur.urssaf.fr https://caf.fr https://www.caf.fr https://ameli.fr https://www.ameli.fr https://francetravail.fr https://www.francetravail.fr"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
