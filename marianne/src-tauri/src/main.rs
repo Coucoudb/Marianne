@@ -45,6 +45,7 @@ fn main() {
             commands::setup::download_model,
             commands::setup::load_model,
             commands::setup::initialize_rag,
+            commands::setup::get_device_info,
             commands::chat::send_message,
             commands::chat::get_conversation_history,
         ])

@@ -22,6 +22,35 @@ struct DownloadProgress {
     percent: u32,
 }
 
+#[derive(serde::Serialize, Clone)]
+pub struct DeviceInfo {
+    /// "cuda", "metal", ou "cpu"
+    pub backend: String,
+    /// Libellé lisible, ex. "GPU CUDA" ou "CPU (12 threads)"
+    pub label: String,
+}
+
+/// Retourner le device utilisé par le moteur LLM
+#[tauri::command]
+pub async fn get_device_info(state: State<'_, AppState>) -> Result<DeviceInfo, String> {
+    let guard = state.llm.lock();
+    match guard.as_ref() {
+        Some(engine) => {
+            let device = &engine.model.device;
+            let (backend, label) = match device {
+                candle_core::Device::Cuda(_) => ("cuda".into(), "GPU CUDA".into()),
+                candle_core::Device::Metal(_) => ("metal".into(), "GPU Metal".into()),
+                candle_core::Device::Cpu => {
+                    let threads = num_cpus::get().saturating_sub(1).max(1);
+                    ("cpu".into(), format!("CPU ({threads} threads)"))
+                }
+            };
+            Ok(DeviceInfo { backend, label })
+        }
+        None => Err("Modèle non chargé".into()),
+    }
+}
+
 /// Vérifier l'état du modèle et du système
 #[tauri::command]
 pub async fn check_model_status(state: State<'_, AppState>) -> Result<ModelStatus, String> {

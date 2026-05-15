@@ -61,6 +61,12 @@ function setupTauriListeners() {
     listen('stream-token', ({ payload }) => {
         if (!state.currentStreamingMessage) return;
 
+        // Effacer l'indicateur "réfléchit" au premier token reçu
+        if (state.tokenBuffer === '') {
+            const contentEl = state.currentStreamingMessage.querySelector('.message-content');
+            if (contentEl) contentEl.innerHTML = '';
+        }
+
         state.tokenBuffer += payload.token;
         const contentEl = state.currentStreamingMessage.querySelector('.message-content');
         if (contentEl) {
@@ -109,11 +115,12 @@ function setupTauriListeners() {
     });
 
     // Modèle prêt
-    listen('model-ready', () => {
+    listen('model-ready', async () => {
         setStatus('ready', 'Marianne est prête');
         state.isModelLoaded = true;
         elements.setupModal.style.display = 'none';
         elements.sendBtn.disabled = !elements.userInput.value.trim();
+        await updateDeviceBadge();
     });
 }
 
@@ -131,10 +138,13 @@ async function checkModelStatus() {
         } else {
             state.isModelLoaded = true;
             setStatus('ready', 'Marianne est prête');
+            await updateDeviceBadge();
         }
     } catch (error) {
-        setStatus('error', `Erreur : ${error}`);
         console.error('Erreur init:', error);
+        // En cas d'erreur, proposer le téléchargement
+        elements.setupModal.style.display = 'flex';
+        setStatus('error', `Erreur : ${error}`);
     }
 }
 
@@ -170,6 +180,10 @@ async function sendMessage() {
     const assistantEl = appendMessage('assistant', '', true);
     state.currentStreamingMessage = assistantEl;
     state.tokenBuffer = '';
+
+    // Indicateur "en réflexion" pendant le prefill
+    const contentEl = assistantEl.querySelector('.message-content');
+    contentEl.innerHTML = '<span class="thinking">Marianne réfléchit...</span>';
 
     try {
         const convId = await invoke('send_message', {
@@ -228,4 +242,27 @@ function autoResizeTextarea() {
     const textarea = elements.userInput;
     textarea.style.height = 'auto';
     textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+}
+
+const DEVICE_META = {
+    cuda:  { icon: '🟢', label: 'GPU CUDA' },
+    metal: { icon: '🔵', label: 'GPU Metal' },
+    cpu:   { icon: '🟠', label: 'CPU' },
+};
+
+async function updateDeviceBadge() {
+    try {
+        const info = await invoke('get_device_info');
+        const badge = document.getElementById('device-badge');
+        const iconEl = document.getElementById('device-icon');
+        const labelEl = document.getElementById('device-label');
+        const meta = DEVICE_META[info.backend] || DEVICE_META.cpu;
+
+        badge.className = `device-badge ${info.backend}`;
+        iconEl.textContent = meta.icon;
+        labelEl.textContent = info.label;
+        badge.style.display = 'flex';
+    } catch (_) {
+        // Modèle pas encore chargé — on masque le badge
+    }
 }

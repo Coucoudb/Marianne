@@ -2,32 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Prompt système principal de Marianne
-pub const SYSTEM_PROMPT: &str = r#"Tu es Marianne, une assistante administrative française experte et bienveillante.
-Tu aides les citoyens français à comprendre leurs droits, naviguer dans les démarches administratives, et rédiger des courriers officiels.
-
-RÈGLES ABSOLUES :
-1. Tu réponds UNIQUEMENT en français
-2. Tu utilises un langage clair, simple et accessible à tous
-3. Tu t'appuies sur les informations du contexte légal fourni
-4. Si tu n'es pas certaine, tu le dis explicitement et conseilles de consulter un professionnel
-5. Tu ne donnes JAMAIS de conseils médicaux ou fiscaux personnalisés
-6. Tes réponses restent 100% confidentielles — elles ne quittent jamais cet appareil
-
-DOMAINES DE COMPÉTENCE :
-- Droit du travail (contrats, licenciement, congés, chômage)
-- Aides sociales (CAF, RSA, APL, allocations familiales)
-- URSSAF et auto-entreprise
-- Droits des locataires et propriétaires
-- Retraite et pensions
-- Recours et contestations administratives
-- Rédaction de courriers officiels
-
-STYLE DE RÉPONSE :
-- Commence par répondre directement à la question
-- Structure ta réponse avec des points clés si nécessaire
-- Si tu rédiges un courrier, respecte le format officiel français
-- Cite tes sources légales quand tu les connais (article de loi, décret...)
-- Termine par les prochaines étapes concrètes à suivre"#;
+pub const SYSTEM_PROMPT: &str = r#"Tu es Marianne, assistante administrative française. Tu aides les citoyens à comprendre leurs droits et démarches. Réponds en français, de manière claire et structurée. Si tu n'es pas certaine, dis-le."#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationTurn {
@@ -35,7 +10,9 @@ pub struct ConversationTurn {
     pub assistant: String,
 }
 
-/// Construire le prompt complet avec contexte RAG et historique
+/// Construire le prompt complet au format Phi-3-instruct chat template
+///
+/// Format Phi-3 : <|system|>\n{system}<|end|>\n<|user|>\n{user}<|end|>\n<|assistant|>\n
 pub fn build_prompt(
     user_question: &str,
     rag_context: &str,
@@ -43,25 +20,37 @@ pub fn build_prompt(
 ) -> String {
     let mut prompt = String::new();
 
-    // Prompt système
+    // Prompt système au format Phi-3
+    prompt.push_str("<|system|>\n");
     prompt.push_str(SYSTEM_PROMPT);
-    prompt.push_str("\n\n");
+    prompt.push_str("<|end|>\n");
 
-    // Contexte RAG si disponible
+    // Contexte RAG si disponible (dans un tour user dédié)
     if !rag_context.is_empty() {
+        prompt.push_str("<|user|>\n");
+        prompt.push_str("Voici le contexte légal et réglementaire pertinent :\n");
         prompt.push_str(rag_context);
-        prompt.push_str("\n---\n\n");
+        prompt.push_str("<|end|>\n");
+        prompt.push_str("<|assistant|>\n");
+        prompt.push_str("J'ai bien pris en compte ce contexte. Posez votre question.<|end|>\n");
     }
 
     // Historique de conversation (max 3 derniers échanges)
     let history_start = conversation_history.len().saturating_sub(3);
     for turn in &conversation_history[history_start..] {
-        prompt.push_str(&format!("Utilisateur : {}\n", turn.user));
-        prompt.push_str(&format!("Assistant : {}\n\n", turn.assistant));
+        prompt.push_str("<|user|>\n");
+        prompt.push_str(&turn.user);
+        prompt.push_str("<|end|>\n");
+        prompt.push_str("<|assistant|>\n");
+        prompt.push_str(&turn.assistant);
+        prompt.push_str("<|end|>\n");
     }
 
     // Question actuelle
-    prompt.push_str(&format!("Utilisateur : {}\nAssistant :", user_question));
+    prompt.push_str("<|user|>\n");
+    prompt.push_str(user_question);
+    prompt.push_str("<|end|>\n");
+    prompt.push_str("<|assistant|>\n");
 
     prompt
 }

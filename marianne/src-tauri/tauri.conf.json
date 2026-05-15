@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "identifier": "fr.marianne.app",
   "build": {
-    "frontendDist": "../frontend",
-    "devUrl": "http://localhost:1420"
+    "frontendDist": "../frontend"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Marianne — Assistant Administratif",

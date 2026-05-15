@@ -11,6 +11,7 @@ pub struct BatchStreamer {
     last_flush: Instant,
     batch_size: usize,
     flush_interval: Duration,
+    first_token_sent: bool,
 }
 
 impl BatchStreamer {
@@ -21,6 +22,7 @@ impl BatchStreamer {
             last_flush: Instant::now(),
             batch_size: 4,
             flush_interval: Duration::from_millis(50),
+            first_token_sent: false,
         }
     }
 
@@ -29,10 +31,13 @@ impl BatchStreamer {
         self.buffer.push_str(token);
         self.token_count += 1;
 
-        let should_flush =
-            self.token_count >= self.batch_size || self.last_flush.elapsed() >= self.flush_interval;
+        // Flush immédiat du premier token pour feedback instantané
+        let should_flush = !self.first_token_sent
+            || self.token_count >= self.batch_size
+            || self.last_flush.elapsed() >= self.flush_interval;
 
         if should_flush && !self.buffer.is_empty() {
+            self.first_token_sent = true;
             let batch = self.buffer.clone();
             self.buffer.clear();
             self.token_count = 0;

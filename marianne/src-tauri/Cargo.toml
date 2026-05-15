@@ -23,27 +23,27 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # LLM avec Candle
-candle-core = { version = "0.8", features = [] }
-candle-transformers = "0.8"
-candle-nn = "0.8"
+candle-core = { version = "0.10", features = [] }
+candle-transformers = "0.10"
+candle-nn = "0.10"
 
 # Tokenisation
-tokenizers = { version = "0.19", default-features = false, features = ["onig"] }
+tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
 
 # Téléchargement modèle
-hf-hub = { version = "0.3", features = ["tokio"] }
+hf-hub = { version = "0.4", features = ["tokio"] }
 reqwest = { version = "0.12", features = ["stream", "json"] }
 
-# Base vectorielle + FTS embarquée
-lancedb = "0.15"
+# Base vectorielle (désactivée temporairement — conflit half avec Candle CUDA)
+# lancedb = "0.15"
 arrow-array = "53"
 arrow-schema = "53"
 
 # Graphe de connaissances en mémoire (GraphRAG)
 petgraph = { version = "0.6", features = ["serde-1"] }
 
-# Embeddings locaux
-fastembed = { version = "4", default-features = false, features = ["ort-download-binaries", "hf-hub"] }
+# Embeddings locaux (désactivé temporairement — conflit CRT avec CUDA kernels)
+# fastembed = { version = "4", default-features = false, features = ["ort-download-binaries", "hf-hub"] }
 
 # Base de données historique
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite"] }

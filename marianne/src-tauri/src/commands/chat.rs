@@ -45,20 +45,24 @@ pub async fn send_message(
         return Err("Le modèle n'est pas encore chargé. Veuillez attendre.".to_string());
     }
 
-    // 1. Pipeline RAG : trouver le contexte pertinent
+    // 1. Pipeline RAG : trouver le contexte pertinent (optionnel — peut ne pas être initialisé)
     let retriever = Retriever::new(state.vector_store.clone());
-    let rag_results = retriever
-        .retrieve(&request.message, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let rag_context = Retriever::format_context(&rag_results);
-    let sources: Vec<String> = rag_results
-        .iter()
-        .map(|r| r.source.clone())
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
+    let (rag_context, sources) = match retriever.retrieve(&request.message, 3).await {
+        Ok(rag_results) => {
+            let context = Retriever::format_context(&rag_results);
+            let srcs: Vec<String> = rag_results
+                .iter()
+                .map(|r| r.source.clone())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            (context, srcs)
+        }
+        Err(e) => {
+            tracing::debug!("RAG non disponible, génération sans contexte : {}", e);
+            (String::new(), Vec::new())
+        }
+    };
 
     // 2. Récupérer l'historique de conversation
     let history = state
@@ -69,7 +73,7 @@ pub async fn send_message(
 
     // 3. Construire le prompt
     let prompt = build_prompt(&request.message, &rag_context, &history);
-    tracing::debug!("Prompt construit ({} caractères)", prompt.len());
+    tracing::info!("Prompt construit ({} caractères) — lancement de la génération...", prompt.len());
 
     // 4. Génération en streaming avec batching IPC
     let llm_state = state.llm.clone();
@@ -82,6 +86,7 @@ pub async fn send_message(
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Moteur LLM non disponible"))?;
 
+        tracing::info!("Début du prefill...");
         let mut streamer = BatchStreamer::new();
         let mut tokens_count = 0usize;
 

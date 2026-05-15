@@ -18,14 +18,8 @@ impl VectorStore {
 
     /// Créer la table si elle n'existe pas
     pub async fn ensure_table(&self) -> Result<()> {
-        let conn = self.connect().await?;
-        let tables = conn.table_names().execute().await?;
-
-        if !tables.contains(&"knowledge".to_string()) {
-            tracing::info!("Création de la table 'knowledge' dans LanceDB");
-            // TODO Phase 3 : créer la table avec le schéma Arrow complet
-        }
-
+        // TODO Phase 3 : connecter à LanceDB et créer la table
+        tracing::debug!("VectorStore::ensure_table — stub (LanceDB non activé)");
         Ok(())
     }
 
@@ -35,27 +29,19 @@ impl VectorStore {
             return Ok(0);
         }
         // TODO Phase 3 : implémenter l'insertion Arrow dans LanceDB
-        tracing::info!("✅ {} chunks à insérer dans LanceDB", chunks.len());
+        tracing::info!("✅ {} chunks à insérer (stub)", chunks.len());
         Ok(chunks.len())
     }
 
     /// Recherche sémantique : trouve les k chunks les plus pertinents
     pub async fn search(
         &self,
-        query_embedding: Vec<f32>,
-        top_k: usize,
+        _query_embedding: Vec<f32>,
+        _top_k: usize,
         _category_filter: Option<&str>,
     ) -> Result<Vec<SearchResult>> {
         // TODO Phase 3 : implémenter la recherche vectorielle LanceDB
         Ok(Vec::new())
-    }
-
-    async fn connect(&self) -> Result<lancedb::Connection> {
-        let uri = self
-            .db_path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Chemin invalide"))?;
-        Ok(lancedb::connect(uri).execute().await?)
     }
 }
 
@@ -68,9 +54,9 @@ pub struct KnowledgeChunk {
     pub embedding: Vec<f32>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone)]
 pub struct SearchResult {
     pub text: String,
     pub source: String,
-    pub similarity: f32,
+    pub score: f32,
 }

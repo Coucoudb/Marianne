@@ -1,6 +1,13 @@
 [build]
 # Pour la distribution : cibler un minimum commun AVX2 (Intel 4e gen+)
 
+[env]
+# CUDA : pointeur vers le compilateur MSVC pour nvcc
+NVCC_CCBIN = "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.41.34120\\bin\\Hostx64\\x64"
+CUDA_COMPUTE_CAP = "89"
+NVCC_APPEND_FLAGS = "-Xcompiler /Zc:preprocessor"
+CUDA_PATH = "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.2"
+
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+avx2,+fma"]
 
