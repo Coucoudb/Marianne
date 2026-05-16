@@ -1,6 +1,6 @@
 # 🇫🇷 Marianne AI — Assistant Administratif Français
 
-[![Release](https://img.shields.io/github/v/release/nicobmusic/Marianne?style=flat-square)](https://github.com/nicobmusic/Marianne/releases)
+[![Release](https://img.shields.io/github/v/release/Coucoudb/Marianne?style=flat-square)](https://github.com/Coucoudb/Marianne/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
 > **v0.0.1** — Application desktop souveraine, 100% locale, sans cloud, sans serveur, avec LLM embarqué.
@@ -129,9 +129,6 @@ marianne/
 
 ## Documentation
 
-- [`guide_assistant_administratif_rust-3.md`](guide_assistant_administratif_rust-3.md) — Guide complet de développement
-- [`marianne_phase8_recherche_web.md`](marianne_phase8_recherche_web.md) — Recherche web souveraine
-- [`marianne_upgrades.md`](marianne_upgrades.md) — Améliorations V1 → V2
 
 ## Contribuer
 

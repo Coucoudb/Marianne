@@ -70,6 +70,10 @@ jobs:
         if: startsWith(matrix.platform, 'macos')
         run: brew install protobuf cmake
 
+      - name: Set macOS deployment target
+        if: startsWith(matrix.platform, 'macos')
+        run: echo "MACOSX_DEPLOYMENT_TARGET=10.15" >> $GITHUB_ENV
+
       - name: Install protobuf (Windows)
         if: matrix.platform == 'windows-latest'
         run: choco install protoc cmake --yes
