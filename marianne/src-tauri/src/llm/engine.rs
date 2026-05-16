@@ -1,32 +1,69 @@
 // src-tauri/src/llm/engine.rs
-use crate::llm::model::{LoadedModel, ModelConfig};
-use crate::llm::sampler::Sampler;
-use crate::llm::tokenizer::MariTokenizer;
+// Moteur LLM basé sur llama.cpp via llama-cpp-2
 use crate::profile::DevicePreference;
 use anyhow::{Context, Result};
-use candle_core::Tensor;
+use llama_cpp_2::context::params::LlamaContextParams;
+use llama_cpp_2::llama_backend::LlamaBackend;
+use llama_cpp_2::llama_batch::LlamaBatch;
+use llama_cpp_2::model::params::LlamaModelParams;
+use llama_cpp_2::model::{AddBos, LlamaModel};
+use llama_cpp_2::sampling::LlamaSampler;
+use std::num::NonZeroU32;
 use std::path::Path;
-
-/// Token ID de fin de séquence pour Phi-3-Mini
-const EOS_TOKEN_ID: u32 = 32000;
-/// Token ID <|end|> — fin de tour dans le format instruct Phi-3
-const END_TOKEN_ID: u32 = 32007;
+use std::pin::pin;
 
 /// Séquences textuelles qui indiquent la fin de la réponse
-const STOP_SEQUENCES: &[&str] = &["<|end|>", "<|user|>", "<|endoftext|>", "-----", "\nInstruction", "\n---\n"];
+const STOP_SEQUENCES: &[&str] = &[
+    "<|end|>",
+    "<|user|>",
+    "<|endoftext|>",
+    "-----",
+    "\nInstruction",
+    "\n---\n",
+];
 
-/// Moteur LLM principal — encapsule le modèle + tokenizer + sampling
-pub struct LlmEngine {
-    pub model: LoadedModel,
-    pub tokenizer: MariTokenizer,
-    pub sampler: Sampler,
+/// Configuration du moteur
+pub struct EngineConfig {
+    pub context_length: u32,
+    pub temperature: f32,
+    pub top_p: f32,
+    pub repeat_penalty: f32,
+    pub repeat_last_n: u32,
+    pub n_gpu_layers: u32,
 }
 
+impl Default for EngineConfig {
+    fn default() -> Self {
+        Self {
+            context_length: 4096,
+            temperature: 0.15,
+            top_p: 0.9,
+            repeat_penalty: 1.15,
+            repeat_last_n: 64,
+            n_gpu_layers: 999,
+        }
+    }
+}
+
+/// Moteur LLM principal — encapsule llama.cpp backend + model
+pub struct LlmEngine {
+    backend: LlamaBackend,
+    model: LlamaModel,
+    config: EngineConfig,
+}
+
+// Safety: LlamaBackend et LlamaModel sont thread-safe via leur implémentation interne
+unsafe impl Send for LlmEngine {}
+unsafe impl Sync for LlmEngine {}
+
 impl LlmEngine {
-    /// Charger le moteur complet (modèle GGUF + tokenizer)
-    pub fn load(models_dir: &Path, device_preference: &DevicePreference, model_filename: &str) -> Result<Self> {
+    /// Charger le moteur complet (modèle GGUF via llama.cpp)
+    pub fn load(
+        models_dir: &Path,
+        device_preference: &DevicePreference,
+        model_filename: &str,
+    ) -> Result<Self> {
         let model_path = models_dir.join(model_filename);
-        let tokenizer_path = models_dir.join("tokenizer.json");
 
         if !model_path.exists() {
             anyhow::bail!(
@@ -34,45 +71,58 @@ impl LlmEngine {
                 model_path
             );
         }
-        if !tokenizer_path.exists() {
-            anyhow::bail!(
-                "Tokenizer introuvable : {:?}. Lancez le téléchargement d'abord.",
-                tokenizer_path
-            );
-        }
 
-        let config = ModelConfig::default();
-        let sampler = Sampler::new(
-            config.temperature,
-            config.top_p,
-            config.repeat_penalty,
-            config.repeat_last_n,
+        let model_name = model_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("modèle");
+        tracing::info!("Chargement de {} depuis {:?}", model_name, model_path);
+
+        // Initialiser le backend llama.cpp
+        let backend = LlamaBackend::init().context("Échec de l'initialisation llama.cpp")?;
+
+        // Rediriger les logs llama.cpp vers tracing
+        llama_cpp_2::send_logs_to_tracing(
+            llama_cpp_2::LogOptions::default().with_logs_enabled(false),
         );
 
-        let model = LoadedModel::from_gguf(&model_path, config, device_preference)
-            .context("Échec du chargement du modèle Phi-3")?;
+        // Configurer les paramètres du modèle
+        let config = EngineConfig::default();
 
-        let tokenizer = MariTokenizer::load(&tokenizer_path)
-            .context("Échec du chargement du tokenizer")?;
+        let n_gpu_layers = match device_preference {
+            DevicePreference::Cpu => 0,
+            DevicePreference::Gpu => config.n_gpu_layers,
+        };
+
+        let model_params = pin!(LlamaModelParams::default().with_n_gpu_layers(n_gpu_layers));
+
+        let model = LlamaModel::load_from_file(&backend, &model_path, &model_params)
+            .map_err(|e| anyhow::anyhow!("Erreur chargement modèle : {:?}", e))?;
+
+        let device_label = if n_gpu_layers > 0 { "GPU" } else { "CPU" };
+        let size_mb = std::fs::metadata(&model_path)
+            .map(|m| m.len() / 1_048_576)
+            .unwrap_or(0);
+        let vocab_size = model.n_vocab();
 
         tracing::info!(
-            "✅ Moteur LLM prêt — vocab: {} tokens, device: {:?}",
-            tokenizer.vocab_size(),
-            model.device
+            "✅ {} chargé ({} Mo, {}) — vocab: {} tokens",
+            model_name,
+            size_mb,
+            device_label,
+            vocab_size
         );
 
         Ok(Self {
+            backend,
             model,
-            tokenizer,
-            sampler,
+            config,
         })
     }
 
     /// Générer une réponse en streaming avec callback par token
     ///
     /// Le callback retourne `true` pour continuer, `false` pour arrêter.
-    /// Implémente la boucle autoregressive complète :
-    /// encode → forward → sample → decode → callback → repeat
     pub fn generate_streaming<F>(
         &mut self,
         prompt: &str,
@@ -82,110 +132,98 @@ impl LlmEngine {
     where
         F: FnMut(&str) -> bool,
     {
-        // 1. Encoder le prompt en tokens
-        let prompt_tokens = self.tokenizer.encode(prompt)?;
-        let prompt_len = prompt_tokens.len();
+        // 1. Créer un contexte d'inférence
+        let ctx_params =
+            LlamaContextParams::default().with_n_ctx(NonZeroU32::new(self.config.context_length));
 
+        let mut ctx = self
+            .model
+            .new_context(&self.backend, ctx_params)
+            .map_err(|e| anyhow::anyhow!("Erreur création contexte : {:?}", e))?;
+
+        // 2. Tokeniser le prompt
+        let tokens_list = self
+            .model
+            .str_to_token(prompt, AddBos::Always)
+            .map_err(|e| anyhow::anyhow!("Erreur tokenisation : {:?}", e))?;
+
+        let prompt_len = tokens_list.len();
         tracing::debug!(
             "Prompt encodé : {} tokens (max génération: {})",
             prompt_len,
             max_tokens
         );
 
-        // Vérifier que le prompt ne dépasse pas la fenêtre de contexte
-        if prompt_len >= self.model.config.context_length {
+        if prompt_len >= self.config.context_length as usize {
             anyhow::bail!(
                 "Le prompt ({} tokens) dépasse la fenêtre de contexte ({} tokens)",
                 prompt_len,
-                self.model.config.context_length
+                self.config.context_length
             );
         }
 
-        // 2. Préparer les tokens pour l'inférence
-        let mut all_tokens: Vec<u32> = prompt_tokens;
+        // 3. Configurer le sampler (température + top-p + pénalité de répétition)
+        let mut sampler = LlamaSampler::chain_simple([
+            LlamaSampler::penalties(
+                self.config.repeat_last_n as i32,
+                self.config.repeat_penalty,
+                0.0, // frequency penalty
+                0.0, // presence penalty
+            ),
+            LlamaSampler::top_p(self.config.top_p, 1),
+            LlamaSampler::temp(self.config.temperature),
+            LlamaSampler::dist(1234),
+        ]);
+
+        // 4. Phase de prefill — encoder le prompt
+        let mut batch = LlamaBatch::new(prompt_len.max(512), 1);
+
+        for (i, &token) in tokens_list.iter().enumerate() {
+            let is_last = i == prompt_len - 1;
+            batch
+                .add(token, i as i32, &[0], is_last)
+                .context("Erreur ajout token au batch")?;
+        }
+
+        ctx.decode(&mut batch)
+            .map_err(|e| anyhow::anyhow!("Erreur prefill : {:?}", e))?;
+
+        tracing::info!("Premier token généré (prefill terminé)");
+
+        // 5. Boucle autoregressive de génération
         let mut generated_text = String::new();
-        let mut prev_decoded_len = 0usize;
         let mut generated_count = 0usize;
+        let mut n_cur = prompt_len as i32;
         let mut watchdog = super::watchdog::GenerationWatchdog::new();
+        let mut decoder = encoding_rs::UTF_8.new_decoder();
 
-        // 3. Boucle autoregressive token par token
-        // Phase de prefill : on passe tout le prompt d'un coup
-        // Phase de decode : on génère un token à la fois
-        let mut pos = 0;
+        let eos_token = self.model.token_eos();
 
-        for index in 0..max_tokens {
-            // Construire le tensor d'entrée
-            let context_size = if index == 0 {
-                // Prefill : tout le prompt
-                all_tokens.len()
-            } else {
-                // Decode : un seul token (le dernier généré)
-                1
-            };
+        for _ in 0..max_tokens {
+            // Sampler : choisir le prochain token
+            let new_token = sampler.sample(&ctx, -1);
 
-            let start_pos = all_tokens.len().saturating_sub(context_size);
-            let input_tokens = &all_tokens[start_pos..];
-
-            let input_tensor = Tensor::new(input_tokens, &self.model.device)?
-                .unsqueeze(0)?; // Shape: [1, seq_len]
-
-            // 4. Forward pass dans le modèle
-            // quantized_phi3 retourne (batch_size, vocab_size) — il extrait le dernier token en interne
-            let logits = self.model.model.forward(&input_tensor, pos)?;
-            pos += context_size;
-
-            // 5. Extraire les logits — squeeze le batch dim pour obtenir [vocab_size]
-            let last_logits = logits.squeeze(0)?;
-
-            // 6. Sampler : pénalité de répétition + température + top-p
-            let next_token = self.sampler.sample(&last_logits, &all_tokens)?;
-
-            // 7. Vérifier fin de séquence
-            if next_token == EOS_TOKEN_ID || next_token == END_TOKEN_ID {
-                tracing::debug!("EOS/END détecté après {} tokens", generated_count);
+            // Vérifier fin de séquence
+            if new_token == eos_token {
+                tracing::debug!("EOS détecté après {} tokens", generated_count);
                 break;
             }
 
-            // 8. Ajouter le token et décoder
-            all_tokens.push(next_token);
-            generated_count += 1;
+            // Décoder le token en texte (special=true pour décoder les tokens de contrôle)
+            let token_str = match self.model.token_to_piece(new_token, &mut decoder, true, None) {
+                Ok(s) => s,
+                Err(_) => continue, // token inconnu — ignorer
+            };
 
-            if generated_count == 1 {
-                tracing::info!("Premier token généré (prefill terminé)");
-            }
-
-            // Décoder TOUS les tokens générés ensemble pour gérer les espaces BPE correctement
-            let full_decoded = self.tokenizer.decode(&all_tokens[prompt_len..])?;
-
-            // Vérifier les stop sequences dans le texte décodé
+            // Vérifier les stop sequences
+            generated_text.push_str(&token_str);
             let mut stopped = false;
-            let mut clean_decoded = full_decoded.clone();
             for stop_seq in STOP_SEQUENCES {
-                if let Some(pos) = full_decoded.find(stop_seq) {
-                    clean_decoded = full_decoded[..pos].to_string();
-                    stopped = true;
-                    break;
-                }
-            }
-
-            let new_text = clean_decoded.get(prev_decoded_len..).unwrap_or("");
-
-            if !new_text.is_empty() {
-                // Watchdog : vérifier les boucles de répétition et timeouts
-                match watchdog.check(new_text) {
-                    super::watchdog::WatchdogStatus::Continue => {}
-                    super::watchdog::WatchdogStatus::Abort(reason) => {
-                        tracing::warn!("Génération interrompue par watchdog : {}", reason);
-                        break;
+                if generated_text.contains(stop_seq) {
+                    if let Some(pos) = generated_text.find(stop_seq) {
+                        generated_text.truncate(pos);
                     }
-                }
-
-                generated_text = clean_decoded[..].to_string();
-                prev_decoded_len = clean_decoded.len();
-
-                // 9. Callback streaming — arrêt si false
-                if !on_token(new_text) {
-                    tracing::debug!("Génération interrompue par callback à {} tokens", generated_count);
+                    stopped = true;
                     break;
                 }
             }
@@ -194,22 +232,51 @@ impl LlmEngine {
                 tracing::debug!("Stop sequence détectée après {} tokens", generated_count);
                 break;
             }
+
+            generated_count += 1;
+
+            // Watchdog : vérifier les boucles de répétition
+            match watchdog.check(&token_str) {
+                super::watchdog::WatchdogStatus::Continue => {}
+                super::watchdog::WatchdogStatus::Abort(reason) => {
+                    tracing::warn!("Génération interrompue par watchdog : {}", reason);
+                    break;
+                }
+            }
+
+            // Callback streaming — arrêt si false
+            if !on_token(&token_str) {
+                tracing::debug!(
+                    "Génération interrompue par callback à {} tokens",
+                    generated_count
+                );
+                break;
+            }
+
+            // Préparer le batch pour le prochain token
+            batch.clear();
+            batch
+                .add(new_token, n_cur, &[0], true)
+                .context("Erreur ajout token au batch")?;
+            n_cur += 1;
+
+            ctx.decode(&mut batch)
+                .map_err(|e| anyhow::anyhow!("Erreur decode : {:?}", e))?;
         }
 
-        tracing::info!(
-            "Génération terminée : {} tokens produits",
-            generated_count
-        );
+        tracing::info!("Génération terminée : {} tokens produits", generated_count);
 
-        // Valider la réponse avant de la retourner
+        // Valider la réponse
         match watchdog.validate_response(&generated_text) {
             super::watchdog::ResponseValidity::Valid => Ok(generated_text),
-            super::watchdog::ResponseValidity::TooShort => {
-                Ok("Je n'ai pas pu générer une réponse complète. Veuillez reformuler votre question.".to_string())
-            }
-            super::watchdog::ResponseValidity::Garbage => {
-                Ok("Une erreur interne s'est produite. Essayez de relancer l'application.".to_string())
-            }
+            super::watchdog::ResponseValidity::TooShort => Ok(
+                "Je n'ai pas pu générer une réponse complète. Veuillez reformuler votre question."
+                    .to_string(),
+            ),
+            super::watchdog::ResponseValidity::Garbage => Ok(
+                "Une erreur interne s'est produite. Essayez de relancer l'application."
+                    .to_string(),
+            ),
         }
     }
 

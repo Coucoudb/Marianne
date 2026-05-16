@@ -39,12 +39,12 @@ pub async fn get_device_info(state: State<'_, AppState>) -> Result<DeviceInfo, S
     let gpu_available = is_gpu_available();
     let guard = state.llm.lock();
     match guard.as_ref() {
-        Some(engine) => {
-            let device = &engine.model.device;
-            let (backend, label) = match device {
-                candle_core::Device::Cuda(_) => ("cuda".into(), "GPU CUDA".into()),
-                candle_core::Device::Metal(_) => ("metal".into(), "GPU Metal".into()),
-                candle_core::Device::Cpu => {
+        Some(_engine) => {
+            // Avec llama.cpp, le device est déterminé par la config n_gpu_layers
+            let profile = state.profile.lock();
+            let (backend, label) = match profile.device_preference {
+                DevicePreference::Gpu if gpu_available => ("cuda".into(), "GPU CUDA".into()),
+                _ => {
                     let threads = num_cpus::get().saturating_sub(1).max(1);
                     ("cpu".into(), format!("CPU ({threads} threads)"))
                 }
@@ -66,12 +66,11 @@ pub async fn check_model_status(state: State<'_, AppState>) -> Result<ModelStatu
         .unwrap_or_else(|| "phi-3-mini-q4.gguf".to_string());
 
     let model_path = state.data_dir.join("models").join(&model_filename);
-    let tokenizer_path = state.data_dir.join("models/tokenizer.json");
     let available_ram_gb = read_available_ram_gb();
 
     Ok(ModelStatus {
         model_downloaded: model_path.exists(),
-        tokenizer_downloaded: tokenizer_path.exists(),
+        tokenizer_downloaded: true, // llama.cpp a un tokenizer intégré
         model_loaded: state.is_model_loaded(),
         model_size_mb: if model_path.exists() {
             std::fs::metadata(&model_path)
@@ -97,10 +96,6 @@ pub async fn download_model(
         (
             "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf",
             "phi-3-mini-q4.gguf",
-        ),
-        (
-            "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct/resolve/main/tokenizer.json",
-            "tokenizer.json",
         ),
     ];
 
@@ -263,9 +258,11 @@ pub async fn initialize_rag(
             for h in hashes {
                 state.known_hashes.insert(h);
             }
-            tracing::info!("Chargé {} hashes web pour déduplication", state.known_hashes.len());
+            if !state.known_hashes.is_empty() {
+                tracing::info!("Chargé {} hashes web pour déduplication", state.known_hashes.len());
+            }
         }
-        Err(e) => tracing::warn!("Impossible de charger les hashes web : {}", e),
+        Err(e) => tracing::debug!("Pas de hashes web à charger : {}", e),
     }
 
     let _ = window.emit("rag-ready", format!("{} passages indexés", chunks));
@@ -347,16 +344,11 @@ fn seed_corpus_from_resources(window: &Window, corpus_dir: &std::path::Path) {
 fn is_gpu_available() -> bool {
     #[cfg(feature = "cuda")]
     {
-        if candle_core::Device::new_cuda(0).is_ok() {
-            return true;
-        }
+        // Avec llama.cpp, la disponibilité CUDA est détectée au runtime
+        // Si le feature cuda est activé, on suppose que le GPU est dispo
+        return true;
     }
-    #[cfg(feature = "metal")]
-    {
-        if candle_core::Device::new_metal(0).is_ok() {
-            return true;
-        }
-    }
+    #[allow(unreachable_code)]
     false
 }
 

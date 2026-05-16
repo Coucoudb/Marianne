@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 /// État global partagé entre toutes les commandes Tauri
 pub struct AppState {
-    /// Moteur LLM (Candle) — protégé par Mutex car non thread-safe
+    /// Moteur LLM (llama.cpp) — protégé par Mutex
     pub llm: Arc<Mutex<Option<LlmEngine>>>,
 
     /// Base vectorielle + FTS RAG — thread-safe en lecture

@@ -82,22 +82,15 @@ mod backend {
 
             if !tables.contains(&"knowledge".to_string()) {
                 let schema = KnowledgeSchema::arrow_schema();
-                let empty_batch = RecordBatch::new_empty(schema.clone());
-                let batches = RecordBatchIterator::new(vec![Ok(empty_batch)], schema);
-                let reader: Box<dyn RecordBatchReader + Send> = Box::new(batches);
-                conn.create_table("knowledge", reader).execute().await?;
+                conn.create_empty_table("knowledge", schema).execute().await?;
                 tracing::info!("✅ Table 'knowledge' créée dans LanceDB");
             }
             Ok(())
         }
 
-        pub async fn insert_chunks(&self, chunks: &[KnowledgeChunk]) -> Result<usize> {
-            if chunks.is_empty() { return Ok(0); }
-
-            let conn = self.connect().await?;
-            let table = conn.open_table("knowledge").execute().await?;
+        /// Construire un RecordBatch à partir de chunks
+        fn chunks_to_batch(chunks: &[KnowledgeChunk]) -> Result<RecordBatch> {
             let schema = KnowledgeSchema::arrow_schema();
-
             let ids: Vec<&str> = chunks.iter().map(|c| c.id.as_str()).collect();
             let texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
             let sources: Vec<&str> = chunks.iter().map(|c| c.source.as_str()).collect();
@@ -113,19 +106,38 @@ mod backend {
                 field, EMBEDDING_DIMS as i32, values, None,
             );
 
-            let batch = RecordBatch::try_new(schema.clone(), vec![
+            Ok(RecordBatch::try_new(schema, vec![
                 Arc::new(StringArray::from(ids)),
                 Arc::new(StringArray::from(texts)),
                 Arc::new(StringArray::from(sources)),
                 Arc::new(StringArray::from(categories)),
                 Arc::new(embedding_array),
-            ])?;
+            ])?)
+        }
 
-            let batches = RecordBatchIterator::new(vec![Ok(batch)], schema);
-            let reader: Box<dyn RecordBatchReader + Send> = Box::new(batches);
-            table.add(reader).execute().await?;
+        pub async fn insert_chunks(&self, chunks: &[KnowledgeChunk]) -> Result<usize> {
+            if chunks.is_empty() { return Ok(0); }
 
-            tracing::info!("✅ {} chunks insérés dans LanceDB", chunks.len());
+            let conn = self.connect().await?;
+            let tables = conn.table_names().execute().await?;
+            let batch = Self::chunks_to_batch(chunks)?;
+            let schema = batch.schema();
+
+            if !tables.contains(&"knowledge".to_string()) {
+                // Créer la table directement avec les données (évite le bug empty table)
+                let batches = RecordBatchIterator::new(vec![Ok(batch)], schema);
+                let reader: Box<dyn RecordBatchReader + Send> = Box::new(batches);
+                conn.create_table("knowledge", reader).execute().await?;
+                tracing::info!("✅ Table 'knowledge' créée avec {} chunks", chunks.len());
+            } else {
+                // Ajouter à la table existante
+                let table = conn.open_table("knowledge").execute().await?;
+                let batches = RecordBatchIterator::new(vec![Ok(batch)], schema);
+                let reader: Box<dyn RecordBatchReader + Send> = Box::new(batches);
+                table.add(reader).execute().await?;
+                tracing::info!("✅ {} chunks insérés dans LanceDB", chunks.len());
+            }
+
             Ok(chunks.len())
         }
 
@@ -136,7 +148,14 @@ mod backend {
             category_filter: Option<&str>,
         ) -> Result<Vec<SearchResult>> {
             let conn = self.connect().await?;
+            let tables = conn.table_names().execute().await?;
+            if !tables.contains(&"knowledge".to_string()) {
+                return Ok(Vec::new());
+            }
             let table = conn.open_table("knowledge").execute().await?;
+            if table.count_rows(None).await? == 0 {
+                return Ok(Vec::new());
+            }
 
             let mut query = table
                 .vector_search(query_embedding)?
@@ -223,8 +242,10 @@ mod backend {
             if !tables.contains(&"knowledge".to_string()) {
                 return Ok(Vec::new());
             }
-
             let table = conn.open_table("knowledge").execute().await?;
+            if table.count_rows(None).await? == 0 {
+                return Ok(Vec::new());
+            }
             let results = table
                 .query()
                 .only_if("source LIKE 'web:%'")

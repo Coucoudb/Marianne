@@ -1,6 +1,6 @@
 [package]
 name = "marianne"
-version = "1.0.0"
+version = "0.0.1"
 edition = "2021"
 rust-version = "1.75"
 description = "Marianne — Assistant Administratif Français 100% Local"
@@ -22,16 +22,11 @@ tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# LLM avec Candle
-candle-core = { version = "0.10", features = [] }
-candle-transformers = "0.10"
-candle-nn = "0.10"
-
-# Tokenisation
-tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
+# LLM avec llama.cpp
+llama-cpp-2 = { version = "0.1", features = ["sampler"] }
+encoding_rs = "0.8"
 
 # Téléchargement modèle
-hf-hub = { version = "0.4", features = ["tokio"] }
 reqwest = { version = "0.12", features = ["stream", "json"] }
 
 # Base vectorielle (optionnelle — conflit CRT avec CUDA/ORT)
@@ -81,8 +76,7 @@ pdf-extract = "0.7"
 default = ["custom-protocol", "fastembed", "vectordb"]
 custom-protocol = ["tauri/custom-protocol"]
 vectordb = ["dep:lancedb", "dep:arrow-array", "dep:arrow-schema"]
-cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
-metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+cuda = ["llama-cpp-2/cuda", "fastembed", "vectordb"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -94,14 +88,5 @@ codegen-units = 1
 panic = "abort"
 strip = "symbols"
 
-[profile.release.package.candle-core]
-opt-level = 3
-
-[profile.release.package.candle-transformers]
-opt-level = 3
-
-[profile.release.package.candle-nn]
-opt-level = 3
-
-[profile.release.package.fastembed]
+[profile.release.package.llama-cpp-2]
 opt-level = 3
