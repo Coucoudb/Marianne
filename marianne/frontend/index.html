@@ -11,18 +11,32 @@
         <!-- Header -->
         <header class="app-header">
             <div class="header-logo">
-                <span class="logo-icon">🇫🇷</span>
+                <span class="logo-icon">M</span>
                 <h1>Marianne</h1>
                 <span class="subtitle">Assistant Administratif</span>
             </div>
             <div class="header-right">
-                <div class="device-badge" id="device-badge" style="display: none;">
-                    <span class="device-icon" id="device-icon"></span>
-                    <span class="device-label" id="device-label"></span>
-                </div>
                 <div class="header-status" id="status-indicator">
                     <span class="status-dot"></span>
                     <span class="status-text">Initialisation...</span>
+                </div>
+                <button class="settings-button" id="settings-btn" title="Paramètres">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+                    </svg>
+                </button>
+                <!-- Panneau paramètres -->
+                <div class="settings-panel" id="settings-panel" style="display: none;">
+                    <h3 class="settings-title">Paramètres</h3>
+                    <div class="settings-item">
+                        <span class="settings-label">Mode</span>
+                        <span class="settings-value" id="settings-device">—</span>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label">Modèle IA</span>
+                        <span class="settings-value" id="settings-model">—</span>
+                    </div>
                 </div>
             </div>
         </header>
@@ -32,15 +46,16 @@
             <!-- Messages -->
             <div class="messages" id="messages">
                 <div class="welcome-message">
-                    <h2>Bonjour ! Je suis Marianne 🇫🇷</h2>
+                    <div class="welcome-avatar">M</div>
+                    <h2>Bonjour, je suis Marianne</h2>
                     <p>Votre assistante administrative française, 100% locale et confidentielle.</p>
-                    <p>Posez-moi vos questions sur :</p>
+                    <p>Comment puis-je vous aider ?</p>
                     <ul>
-                        <li>📋 Droit du travail (contrats, licenciement, congés)</li>
-                        <li>💶 Aides sociales (CAF, RSA, APL)</li>
-                        <li>🏢 URSSAF et auto-entreprise</li>
-                        <li>🏠 Droits des locataires</li>
-                        <li>✉️ Rédaction de courriers officiels</li>
+                        <li>📋 Droit du travail — contrats, licenciement, congés</li>
+                        <li>💶 Aides sociales — CAF, RSA, APL, prime d'activité</li>
+                        <li>🏢 URSSAF — auto-entreprise, cotisations</li>
+                        <li>🏠 Logement — droits des locataires, bail, APL</li>
+                        <li>✉️ Courriers — rédaction de lettres officielles</li>
                     </ul>
                 </div>
             </div>
@@ -48,6 +63,11 @@
             <!-- Zone de saisie -->
             <div class="input-area">
                 <div class="input-wrapper">
+                    <button id="upload-btn" class="upload-button" title="Analyser un document (PDF, TXT)">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                        </svg>
+                    </button>
                     <textarea
                         id="user-input"
                         placeholder="Posez votre question administrative..."
@@ -70,7 +90,7 @@
     <!-- Setup modal (téléchargement du modèle) -->
     <div class="modal" id="setup-modal" style="display: none;">
         <div class="modal-content">
-            <h2>🇫🇷 Configuration initiale</h2>
+            <h2>Configuration initiale</h2>
             <p>Marianne doit télécharger son modèle d'intelligence artificielle (~2.2 Go).</p>
             <p>Ce téléchargement n'a lieu qu'une seule fois.</p>
 

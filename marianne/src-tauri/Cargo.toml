@@ -34,16 +34,16 @@ tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
 hf-hub = { version = "0.4", features = ["tokio"] }
 reqwest = { version = "0.12", features = ["stream", "json"] }
 
-# Base vectorielle (désactivée temporairement — conflit half avec Candle CUDA)
-# lancedb = "0.15"
-arrow-array = "53"
-arrow-schema = "53"
+# Base vectorielle (optionnelle — conflit CRT avec CUDA/ORT)
+lancedb = { version = "0.29", default-features = false, optional = true }
+arrow-array = { version = "58", optional = true }
+arrow-schema = { version = "58", optional = true }
 
 # Graphe de connaissances en mémoire (GraphRAG)
 petgraph = { version = "0.6", features = ["serde-1"] }
 
-# Embeddings locaux (désactivé temporairement — conflit CRT avec CUDA kernels)
-# fastembed = { version = "4", default-features = false, features = ["ort-download-binaries", "hf-hub"] }
+# Embeddings locaux (optionnel — conflit CRT avec CUDA kernels)
+fastembed = { version = "4", default-features = false, features = ["ort-download-binaries", "hf-hub"], optional = true }
 
 # Base de données historique
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite"] }
@@ -69,10 +69,18 @@ bincode = "1"
 scraper = "0.19"
 urlencoding = "2"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+regex-lite = "0.1"
+
+# Déduplication RAG (U1)
+dashmap = "6"
+
+# Analyse de documents (U4)
+pdf-extract = "0.7"
 
 [features]
-default = ["custom-protocol"]
+default = ["custom-protocol", "fastembed", "vectordb"]
 custom-protocol = ["tauri/custom-protocol"]
+vectordb = ["dep:lancedb", "dep:arrow-array", "dep:arrow-schema"]
 cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 

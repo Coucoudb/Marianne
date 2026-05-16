@@ -214,14 +214,28 @@ pub async fn initialize_rag(
     let models_dir = state.data_dir.join("models");
 
     if !corpus_dir.exists() {
-        tracing::warn!("Répertoire corpus inexistant : {:?}", corpus_dir);
-        return Ok(());
+        tracing::info!("Création du répertoire corpus : {:?}", corpus_dir);
+        std::fs::create_dir_all(&corpus_dir).map_err(|e| e.to_string())?;
     }
+
+    // Seed : copier les fiches bundlées si le corpus est vide
+    seed_corpus_from_resources(&window, &corpus_dir);
 
     let store = state.vector_store.clone();
     let chunks = crate::rag::ingestion::ingest_corpus(&corpus_dir, &store, &models_dir)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Charger les hashes des chunks web existants pour déduplication
+    match store.load_all_content_hashes().await {
+        Ok(hashes) => {
+            for h in hashes {
+                state.known_hashes.insert(h);
+            }
+            tracing::info!("Chargé {} hashes web pour déduplication", state.known_hashes.len());
+        }
+        Err(e) => tracing::warn!("Impossible de charger les hashes web : {}", e),
+    }
 
     let _ = window.emit("rag-ready", format!("{} passages indexés", chunks));
     tracing::info!("✅ RAG initialisé : {} chunks", chunks);
@@ -245,4 +259,55 @@ fn read_available_ram_gb() -> f32 {
     }
     // Windows/macOS — valeur par défaut si non détectable
     4.0
+}
+
+/// Copier les fiches Markdown bundlées dans le corpus si celui-ci est vide.
+/// Permet d'avoir un corpus initial dès la première utilisation.
+fn seed_corpus_from_resources(window: &Window, corpus_dir: &std::path::Path) {
+    use tauri::Manager;
+
+    // Ne rien faire si le corpus contient déjà des .md
+    let has_md = std::fs::read_dir(corpus_dir)
+        .ok()
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .any(|e| {
+                    e.path()
+                        .extension()
+                        .and_then(|ext| ext.to_str())
+                        == Some("md")
+                })
+        })
+        .unwrap_or(false);
+
+    if has_md {
+        return;
+    }
+
+    // Chercher les resources bundlées
+    let resource_dir = match window.app_handle().path().resource_dir() {
+        Ok(dir) => dir,
+        Err(_) => return,
+    };
+
+    // Les fichiers bundlés via "resources": ["../corpus/*"] sont copiés à la racine du resource_dir
+    let mut copied = 0usize;
+    if let Ok(entries) = std::fs::read_dir(&resource_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                let dest = corpus_dir.join(path.file_name().unwrap());
+                if !dest.exists() {
+                    if std::fs::copy(&path, &dest).is_ok() {
+                        copied += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if copied > 0 {
+        tracing::info!("📚 {} fiches initiales copiées dans le corpus", copied);
+    }
 }

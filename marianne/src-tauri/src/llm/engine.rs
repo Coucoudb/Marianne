@@ -12,7 +12,7 @@ const EOS_TOKEN_ID: u32 = 32000;
 const END_TOKEN_ID: u32 = 32007;
 
 /// Séquences textuelles qui indiquent la fin de la réponse
-const STOP_SEQUENCES: &[&str] = &["<|end|>", "<|user|>", "<|endoftext|>", "-----"];
+const STOP_SEQUENCES: &[&str] = &["<|end|>", "<|user|>", "<|endoftext|>", "-----", "\nInstruction", "\n---\n"];
 
 /// Moteur LLM principal — encapsule le modèle + tokenizer + sampling
 pub struct LlmEngine {
@@ -105,6 +105,7 @@ impl LlmEngine {
         let mut generated_text = String::new();
         let mut prev_decoded_len = 0usize;
         let mut generated_count = 0usize;
+        let mut watchdog = super::watchdog::GenerationWatchdog::new();
 
         // 3. Boucle autoregressive token par token
         // Phase de prefill : on passe tout le prompt d'un coup
@@ -166,9 +167,18 @@ impl LlmEngine {
                 }
             }
 
-            let new_text = &clean_decoded[prev_decoded_len..];
+            let new_text = clean_decoded.get(prev_decoded_len..).unwrap_or("");
 
             if !new_text.is_empty() {
+                // Watchdog : vérifier les boucles de répétition et timeouts
+                match watchdog.check(new_text) {
+                    super::watchdog::WatchdogStatus::Continue => {}
+                    super::watchdog::WatchdogStatus::Abort(reason) => {
+                        tracing::warn!("Génération interrompue par watchdog : {}", reason);
+                        break;
+                    }
+                }
+
                 generated_text = clean_decoded[..].to_string();
                 prev_decoded_len = clean_decoded.len();
 
@@ -190,7 +200,16 @@ impl LlmEngine {
             generated_count
         );
 
-        Ok(generated_text)
+        // Valider la réponse avant de la retourner
+        match watchdog.validate_response(&generated_text) {
+            super::watchdog::ResponseValidity::Valid => Ok(generated_text),
+            super::watchdog::ResponseValidity::TooShort => {
+                Ok("Je n'ai pas pu générer une réponse complète. Veuillez reformuler votre question.".to_string())
+            }
+            super::watchdog::ResponseValidity::Garbage => {
+                Ok("Une erreur interne s'est produite. Essayez de relancer l'application.".to_string())
+            }
+        }
     }
 
     /// Génération bloquante (sans streaming) pour les évaluations internes

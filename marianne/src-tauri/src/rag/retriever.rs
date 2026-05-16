@@ -40,7 +40,7 @@ impl Retriever {
 
         for (i, result) in results.iter().enumerate() {
             context.push_str(&format!(
-                "[Source {}] ({})\n{}\n\n",
+                "Passage {} (source : {}) :\n{}\n\n",
                 i + 1,
                 result.source,
                 result.text

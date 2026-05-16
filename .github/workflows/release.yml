@@ -1,0 +1,110 @@
+name: Release Marianne
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            features: "custom-protocol"
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            features: "custom-protocol"
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            features: "custom-protocol"
+          - platform: macos-13
+            target: x86_64-apple-darwin
+            features: "custom-protocol"
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: marianne/src-tauri
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0" --locked
+
+      - name: Build Tauri app
+        working-directory: marianne
+        run: cargo tauri build --target ${{ matrix.target }} --features ${{ matrix.features }}
+
+      - name: Upload artifacts (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: marianne-windows-x64
+          path: |
+            marianne/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+            marianne/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+
+      - name: Upload artifacts (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: actions/upload-artifact@v4
+        with:
+          name: marianne-linux-x64
+          path: |
+            marianne/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
+            marianne/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+
+      - name: Upload artifacts (macOS ARM)
+        if: matrix.platform == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: marianne-macos-arm64
+          path: marianne/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+
+      - name: Upload artifacts (macOS Intel)
+        if: matrix.platform == 'macos-13'
+        uses: actions/upload-artifact@v4
+        with:
+          name: marianne-macos-x64
+          path: marianne/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          generate_release_notes: true
+          files: artifacts/**/*
