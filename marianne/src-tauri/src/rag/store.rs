@@ -162,7 +162,7 @@ mod backend {
                     for i in 0..batch.num_rows() {
                         let distance = distance_col.map(|d| d.value(i)).unwrap_or(1.0);
                         let similarity = 1.0 - distance;
-                        if similarity > 0.3 {
+                        if similarity > 0.4 {
                             search_results.push(SearchResult {
                                 text: texts.value(i).to_string(),
                                 source: sources.value(i).to_string(),
@@ -310,7 +310,7 @@ mod backend {
                         similarity: sim,
                     }
                 })
-                .filter(|r| r.similarity > 0.3)
+                .filter(|r| r.similarity > 0.4)
                 .collect();
 
             scored.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap());
