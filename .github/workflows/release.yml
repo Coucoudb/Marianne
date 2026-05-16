@@ -30,10 +30,11 @@ jobs:
             target: aarch64-apple-darwin
             features: "custom-protocol,fastembed,vectordb"
             artifact-name: marianne-macos-arm64
-          - platform: macos-13
-            target: x86_64-apple-darwin
-            features: "custom-protocol,fastembed,vectordb"
-            artifact-name: marianne-macos-x64
+          # macos-13 (x86_64) désactivé — runner obsolète
+          # - platform: macos-13
+          #   target: x86_64-apple-darwin
+          #   features: "custom-protocol,fastembed,vectordb"
+          #   artifact-name: marianne-macos-x64
 
     runs-on: ${{ matrix.platform }}
     steps:
