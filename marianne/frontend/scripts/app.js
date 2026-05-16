@@ -29,6 +29,9 @@ const elements = {
     settingsPanel: document.getElementById('settings-panel'),
     settingsDevice: document.getElementById('settings-device'),
     settingsModel: document.getElementById('settings-model'),
+    toggleGpu: document.getElementById('toggle-gpu'),
+    toggleCpu: document.getElementById('toggle-cpu'),
+    settingsHint: document.getElementById('settings-hint'),
 };
 
 // ─── Initialisation ────────────────────────────────────────────────────────────
@@ -70,6 +73,14 @@ function setupEventListeners() {
         }
     });
 
+    // Toggle GPU / CPU
+    elements.toggleGpu.addEventListener('click', () => {
+        if (!elements.toggleGpu.disabled) setDevicePreference('Gpu');
+    });
+    elements.toggleCpu.addEventListener('click', () => {
+        setDevicePreference('Cpu');
+    });
+
     // Drag & drop sur la zone de messages
     setupDragAndDrop();
 }
@@ -98,6 +109,12 @@ function setupTauriListeners() {
         if (!state.currentStreamingMessage) return;
 
         state.currentStreamingMessage.classList.remove('streaming');
+
+        // Ré-afficher la réponse nettoyée (supprime les notes parasites du streaming)
+        const contentEl = state.currentStreamingMessage.querySelector('.message-content');
+        if (contentEl && payload.full_response) {
+            contentEl.innerHTML = marked.parse(payload.full_response);
+        }
 
         // Pied de message : sources + stats
         const footerEl = document.createElement('div');
@@ -151,6 +168,12 @@ function setupTauriListeners() {
         elements.progressFill.style.width = `${payload.percent}%`;
         elements.progressText.textContent =
             `${payload.downloaded_mb} Mo / ${payload.total_mb} Mo (${payload.percent}%)`;
+
+        // Aussi mettre à jour la barre de progression du catalogue de modèles
+        const modelFill = document.getElementById('model-progress-fill');
+        const modelText = document.getElementById('model-progress-text');
+        if (modelFill) modelFill.style.width = `${payload.percent}%`;
+        if (modelText) modelText.textContent = `${payload.downloaded_mb}/${payload.total_mb} Mo (${payload.percent}%)`;
     });
 
     // Modèle prêt
@@ -374,6 +397,8 @@ function toggleSettings() {
     } else {
         elements.settingsPanel.style.display = 'block';
         elements.settingsBtn.classList.add('active');
+        loadDevicePreference();
+        loadModelCatalog();
     }
 }
 
@@ -386,10 +411,174 @@ async function updateDeviceBadge() {
     try {
         const info = await invoke('get_device_info');
         elements.settingsDevice.textContent = info.label;
-        elements.settingsModel.textContent = 'Phi-3 Mini (Q4)';
+        // Afficher le nom du modèle actif depuis le catalogue
+        const catalog = await invoke('get_model_catalog');
+        const active = catalog.find(e => e.active);
+        elements.settingsModel.textContent = active ? active.info.name : 'Aucun';
     } catch (_) {
         elements.settingsDevice.textContent = '—';
         elements.settingsModel.textContent = '—';
+    }
+}
+
+async function loadDevicePreference() {
+    try {
+        const pref = await invoke('get_device_preference');
+
+        // Mettre à jour les boutons du toggle
+        elements.toggleGpu.classList.toggle('active', pref.preference === 'Gpu');
+        elements.toggleCpu.classList.toggle('active', pref.preference === 'Cpu');
+
+        // Désactiver le bouton GPU si pas de GPU disponible
+        elements.toggleGpu.disabled = !pref.gpu_available;
+        if (!pref.gpu_available) {
+            elements.settingsHint.textContent = 'GPU non détecté sur cette machine';
+        } else {
+            elements.settingsHint.textContent = 'Appliqué au prochain démarrage';
+        }
+    } catch (_) {
+        // Silencieux
+    }
+}
+
+async function setDevicePreference(preference) {
+    try {
+        await invoke('set_device_preference', { preference });
+        elements.toggleGpu.classList.toggle('active', preference === 'Gpu');
+        elements.toggleCpu.classList.toggle('active', preference === 'Cpu');
+        elements.settingsHint.textContent = '✓ Appliqué au prochain démarrage';
+    } catch (e) {
+        console.warn('Erreur sauvegarde préférence device:', e);
+    }
+}
+
+// ─── Gestion des modèles ───────────────────────────────────────────────────────
+let modelDownloading = false;
+
+async function loadModelCatalog() {
+    const container = document.getElementById('model-catalog');
+    if (!container) return;
+
+    try {
+        const catalog = await invoke('get_model_catalog');
+        container.innerHTML = '';
+
+        for (const entry of catalog) {
+            const card = document.createElement('div');
+            card.className = `model-card${entry.active ? ' active' : ''}`;
+
+            let badgeClass = 'not-downloaded';
+            let badgeText = `${entry.info.size_mb} Mo`;
+            if (entry.active) {
+                badgeClass = 'active';
+                badgeText = 'Actif';
+            } else if (entry.downloaded) {
+                badgeClass = 'downloaded';
+                badgeText = 'Téléchargé';
+            }
+
+            card.innerHTML = `
+                <div class="model-card-header">
+                    <span class="model-card-name">${entry.info.name}</span>
+                    <span class="model-card-badge ${badgeClass}">${badgeText}</span>
+                </div>
+                <div class="model-card-desc">${entry.info.description}</div>
+                <div class="model-card-meta">
+                    <span>${entry.info.parameters}</span>
+                    <span>•</span>
+                    <span>Contexte : ${entry.info.context_length} tokens</span>
+                </div>
+                <div class="model-card-actions"></div>
+            `;
+
+            const actionsDiv = card.querySelector('.model-card-actions');
+
+            if (entry.active) {
+                const delBtn = document.createElement('button');
+                delBtn.className = 'model-btn danger';
+                delBtn.textContent = 'Supprimer';
+                delBtn.addEventListener('click', () => deleteCatalogModel(entry.info.id));
+                actionsDiv.appendChild(delBtn);
+            } else if (entry.downloaded) {
+                const activateBtn = document.createElement('button');
+                activateBtn.className = 'model-btn primary';
+                activateBtn.textContent = 'Activer';
+                activateBtn.addEventListener('click', () => selectCatalogModel(entry.info.id));
+                actionsDiv.appendChild(activateBtn);
+
+                const delBtn = document.createElement('button');
+                delBtn.className = 'model-btn danger';
+                delBtn.textContent = 'Supprimer';
+                delBtn.addEventListener('click', () => deleteCatalogModel(entry.info.id));
+                actionsDiv.appendChild(delBtn);
+            } else {
+                const dlBtn = document.createElement('button');
+                dlBtn.className = 'model-btn primary';
+                dlBtn.textContent = 'Télécharger';
+                dlBtn.addEventListener('click', () => downloadCatalogModel(entry.info.id));
+                actionsDiv.appendChild(dlBtn);
+            }
+
+            container.appendChild(card);
+        }
+    } catch (e) {
+        container.innerHTML = '<p class="settings-hint">Impossible de charger le catalogue</p>';
+        console.warn('Erreur chargement catalogue:', e);
+    }
+}
+
+async function downloadCatalogModel(modelId) {
+    if (modelDownloading) return;
+    modelDownloading = true;
+
+    const progressEl = document.getElementById('model-progress');
+    const progressFill = document.getElementById('model-progress-fill');
+    const progressText = document.getElementById('model-progress-text');
+    const actionsEl = document.getElementById('model-actions');
+
+    if (progressEl) progressEl.style.display = 'flex';
+    if (actionsEl) actionsEl.style.display = 'block';
+
+    try {
+        await invoke('download_selected_model', { modelId });
+        if (progressText) progressText.textContent = '✓ Terminé';
+        // Recharger le catalogue
+        setTimeout(() => {
+            if (progressEl) progressEl.style.display = 'none';
+            if (actionsEl) actionsEl.style.display = 'none';
+            loadModelCatalog();
+        }, 1500);
+    } catch (e) {
+        if (progressText) progressText.textContent = 'Erreur';
+        console.error('Erreur téléchargement modèle:', e);
+    } finally {
+        modelDownloading = false;
+    }
+}
+
+async function deleteCatalogModel(modelId) {
+    if (!confirm('Supprimer ce modèle ? Vous devrez le retélécharger pour l\'utiliser à nouveau.')) {
+        return;
+    }
+
+    try {
+        await invoke('delete_model', { modelId });
+        loadModelCatalog();
+        updateDeviceBadge();
+    } catch (e) {
+        alert('Erreur lors de la suppression : ' + e);
+    }
+}
+
+async function selectCatalogModel(modelId) {
+    try {
+        await invoke('select_model', { modelId });
+        loadModelCatalog();
+        updateDeviceBadge();
+        const hint = document.getElementById('settings-hint');
+        if (hint) hint.textContent = '⚠ Redémarrez pour charger le nouveau modèle';
+    } catch (e) {
+        alert('Erreur : ' + e);
     }
 }
 

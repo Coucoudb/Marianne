@@ -28,12 +28,12 @@ pub fn is_off_topic(query: &str) -> bool {
 
     // ─── Blacklist : sujets explicitement interdits ────────────────────────
     let blocked_keywords = [
-        // Programmation / informatique
-        "code", "coder", "programmer", "python", "javascript", "java ",
+        // Programmation / informatique (technique pure)
+        "coder", "programmer", "python", "javascript", "java ",
         "rust ", "html", "css", "sql", "api ", "github", "docker", "linux",
-        "algorithme", "variable", "fonction", "class ", "debug",
+        "variable", "fonction", "class ", "debug",
         "compile", "framework", "frontend", "backend", "serveur web",
-        "base de données", "machine learning", "intelligence artificielle",
+        "base de données", "machine learning",
         // Hacking / cybersécurité offensive
         "hack", "hacker", "pirater", "phishing", "exploit", "crack",
         "bruteforce", "ddos", "malware", "virus informatique",
@@ -104,6 +104,15 @@ pub fn is_off_topic(query: &str) -> bool {
         "courrier", "lettre officielle", "lettre de", "recommandé",
         // Assurance
         "assurance", "sinistre", "indemnisation",
+        // Vie quotidienne / société
+        "jeune", "jeunes", "enfant", "parent", "famille",
+        "citoyen", "citoyenne", "citoyenneté",
+        "numérique", "internet", "données personnelles", "rgpd", "cnil",
+        "intelligence artificielle", " ia ", "l'ia",
+        "régulation", "réglementation", "encadrement",
+        "société", "sociétal", "social",
+        "mineur", "majeur", "adolescent",
+        "éducation", "enseignement", "formation",
         // Marianne
         "marianne",
     ];
@@ -116,9 +125,10 @@ pub fn is_off_topic(query: &str) -> bool {
         return true;
     }
 
-    // Règle 2 : aucun ancrage France sur une question substantielle → bloqué
-    // (questions > 40 caractères sans aucun terme admin/France = hors sujet)
-    if !has_anchor && q.len() > 40 {
+    // Règle 2 : aucun ancrage France sur une question très longue → bloqué
+    // Seulement pour les questions clairement hors sujet (> 80 caractères sans aucun mot-clé lié à la France)
+    // Les questions courtes/moyennes sont laissées au LLM qui sait refuser poliment
+    if !has_anchor && q.len() > 80 {
         return true;
     }
 
@@ -128,10 +138,52 @@ pub fn is_off_topic(query: &str) -> bool {
 /// Détecter les questions conversationnelles/méta qui n'ont pas besoin de recherche web
 pub fn is_conversational(query: &str) -> bool {
     let q = query.to_lowercase();
+    let q_trimmed = q.trim();
 
-    // Salutations
-    let greetings = ["bonjour", "salut", "coucou", "hello", "bonsoir", "hey"];
-    if greetings.iter().any(|g| q.starts_with(g)) && q.len() < 60 {
+    // Messages très courts (< 20 caractères) et non-question → conversationnel
+    if q_trimmed.len() < 20 && !q_trimmed.contains("droit")
+        && !q_trimmed.contains("loi") && !q_trimmed.contains("aide")
+        && !q_trimmed.contains("caf") && !q_trimmed.contains("rsa")
+        && !q_trimmed.contains("impôt") && !q_trimmed.contains("travail")
+    {
+        // Vérifier que c'est bien conversationnel et pas un mot-clé admin isolé
+        let conv_short = [
+            "bonjour", "salut", "coucou", "hello", "bonsoir", "hey",
+            "merci", "ok", "oui", "non", "d'accord", "parfait", "super",
+            "au revoir", "bye", "à bientôt", "a bientot", "bonne journée",
+            "bonne soirée", "bon week-end", "ça va", "ca va", "bien",
+            "comment vas", "comment tu", "quoi de neuf",
+        ];
+        if conv_short.iter().any(|c| q_trimmed.contains(c)) {
+            return true;
+        }
+    }
+
+    // Salutations (même dans une phrase plus longue)
+    let greetings = [
+        "bonjour", "salut", "coucou", "hello", "bonsoir", "hey ",
+        "bonne journée", "bonne soirée",
+    ];
+    if greetings.iter().any(|g| q_trimmed.starts_with(g)) && q_trimmed.len() < 80 {
+        // Sauf si le reste contient une vraie question admin
+        let after = greetings.iter()
+            .filter_map(|g| q_trimmed.strip_prefix(g))
+            .next()
+            .unwrap_or("")
+            .trim_start_matches(|c: char| c == ',' || c == '!' || c == '.' || c.is_whitespace());
+        if after.is_empty() || after.len() < 15 {
+            return true;
+        }
+    }
+
+    // Questions sur l'état / bien-être
+    let wellbeing = [
+        "comment vas-tu", "comment vas tu", "comment tu vas",
+        "comment allez-vous", "comment allez vous",
+        "ça va", "ca va", "tu vas bien", "vous allez bien",
+        "la forme", "en forme", "quoi de neuf", "quoi de beau",
+    ];
+    if wellbeing.iter().any(|w| q_trimmed.contains(w)) {
         return true;
     }
 
@@ -163,14 +215,25 @@ pub fn is_conversational(query: &str) -> bool {
         "présente toi",
         "ton rôle",
         "ton role",
+        "tu t'appelles",
+        "tu t'appelle",
+        "quel est ton nom",
+        "ton nom",
+        "c'est quoi ton",
+        "tu es quoi",
     ];
     if meta_patterns.iter().any(|p| q.contains(p)) {
         return true;
     }
 
     // Remerciements / fin de conversation
-    let closings = ["merci", "au revoir", "à bientôt", "a bientot", "ok merci", "parfait", "super"];
-    if closings.iter().any(|c| q.starts_with(c)) && q.len() < 50 {
+    let closings = [
+        "merci", "au revoir", "à bientôt", "a bientot", "ok merci",
+        "parfait", "super", "génial", "d'accord", "entendu", "compris",
+        "c'est noté", "c'est note", "top", "nickel", "formidable",
+        "bonne journée", "bonne soirée", "bye",
+    ];
+    if closings.iter().any(|c| q_trimmed.starts_with(c)) && q_trimmed.len() < 60 {
         return true;
     }
 

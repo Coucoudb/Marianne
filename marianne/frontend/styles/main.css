@@ -244,7 +244,9 @@ body {
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-lg);
     padding: var(--spacing-md) var(--spacing-lg);
-    min-width: 240px;
+    min-width: 280px;
+    max-height: 80vh;
+    overflow-y: auto;
     z-index: 100;
 }
 
@@ -278,6 +280,218 @@ body {
     font-size: 0.8rem;
     font-weight: 600;
     color: var(--text-primary);
+}
+
+.settings-separator {
+    height: 1px;
+    background: var(--border-light);
+    margin: var(--spacing-sm) 0;
+}
+
+.settings-item-preference {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-xs);
+}
+
+.toggle-switch {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+    margin-top: 4px;
+    width: 100%;
+}
+
+.toggle-option {
+    flex: 1;
+    padding: 6px 16px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border: none;
+    background: var(--bg-chat);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+    text-align: center;
+}
+
+.toggle-option:first-child {
+    border-right: 1px solid var(--border);
+}
+
+.toggle-option.active {
+    background: var(--bleu-france);
+    color: var(--blanc);
+}
+
+.toggle-option:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.settings-hint {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    margin-top: 2px;
+}
+
+.settings-subtitle {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+/* ─── MODEL CATALOG ─────────────────────────────────────── */
+.model-catalog {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.model-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+    background: var(--bg-primary);
+    transition: border-color 0.2s;
+}
+
+.model-card:hover {
+    border-color: var(--accent);
+}
+
+.model-card.active {
+    border-color: var(--success);
+    background: #f0faf4;
+}
+
+.model-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.model-card-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.model-card-badge {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    border-radius: var(--radius-full);
+    font-weight: 500;
+}
+
+.model-card-badge.downloaded {
+    background: #e6f4ea;
+    color: var(--success);
+}
+
+.model-card-badge.active {
+    background: var(--success);
+    color: white;
+}
+
+.model-card-badge.not-downloaded {
+    background: #f0ece6;
+    color: var(--text-secondary);
+}
+
+.model-card-desc {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    line-height: 1.4;
+}
+
+.model-card-meta {
+    display: flex;
+    gap: 8px;
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.model-card-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.model-btn {
+    font-size: 0.7rem;
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.model-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.model-btn.primary {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.model-btn.primary:hover {
+    background: var(--bleu-france-light);
+}
+
+.model-btn.danger {
+    color: var(--error);
+    border-color: var(--error);
+}
+
+.model-btn.danger:hover {
+    background: #fef2f2;
+}
+
+.model-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.model-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--border);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: var(--radius-full);
+    transition: width 0.3s;
+    width: 0%;
+}
+
+.progress-text {
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    min-width: 35px;
 }
 
 /* ─── CHAT CONTAINER ────────────────────────────────────── */

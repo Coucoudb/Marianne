@@ -1,5 +1,20 @@
 use std::path::Path;
 
+/// Préférence de device pour le modèle LLM
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub enum DevicePreference {
+    /// Utiliser le GPU si disponible (défaut)
+    Gpu,
+    /// Forcer le mode CPU
+    Cpu,
+}
+
+impl Default for DevicePreference {
+    fn default() -> Self {
+        Self::Gpu
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct UserProfile {
     pub first_name: Option<String>,
@@ -9,6 +24,16 @@ pub struct UserProfile {
     pub topics_of_interest: Vec<String>,
     pub language_level: LanguageLevel,
     pub updated_at: i64,
+    /// Préférence GPU / CPU — appliquée au prochain démarrage
+    #[serde(default)]
+    pub device_preference: DevicePreference,
+    /// Identifiant du modèle sélectionné (ex: "phi-3-mini-q4")
+    #[serde(default = "default_model_id")]
+    pub selected_model: String,
+}
+
+fn default_model_id() -> String {
+    "phi-3-mini-q4".to_string()
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -99,6 +124,8 @@ impl Default for UserProfile {
             topics_of_interest: Vec::new(),
             language_level: LanguageLevel::Standard,
             updated_at: 0,
+            device_preference: DevicePreference::default(),
+            selected_model: default_model_id(),
         }
     }
 }

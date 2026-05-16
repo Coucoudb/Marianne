@@ -30,12 +30,35 @@
                 <div class="settings-panel" id="settings-panel" style="display: none;">
                     <h3 class="settings-title">Paramètres</h3>
                     <div class="settings-item">
-                        <span class="settings-label">Mode</span>
+                        <span class="settings-label">Mode actuel</span>
                         <span class="settings-value" id="settings-device">—</span>
                     </div>
                     <div class="settings-item">
                         <span class="settings-label">Modèle IA</span>
                         <span class="settings-value" id="settings-model">—</span>
+                    </div>
+                    <div class="settings-separator"></div>
+                    <div class="settings-item settings-item-preference">
+                        <span class="settings-label">Mode préféré</span>
+                        <div class="toggle-switch" id="device-toggle">
+                            <button class="toggle-option" data-value="Gpu" id="toggle-gpu">GPU</button>
+                            <button class="toggle-option" data-value="Cpu" id="toggle-cpu">CPU</button>
+                        </div>
+                    </div>
+                    <p class="settings-hint" id="settings-hint">Appliqué au prochain démarrage</p>
+
+                    <div class="settings-separator"></div>
+                    <h4 class="settings-subtitle">Gestion du modèle IA</h4>
+                    <div class="model-catalog" id="model-catalog">
+                        <!-- Rempli dynamiquement par JS -->
+                    </div>
+                    <div class="model-actions" id="model-actions" style="display: none;">
+                        <div class="model-progress" id="model-progress" style="display: none;">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="model-progress-fill"></div>
+                            </div>
+                            <span class="progress-text" id="model-progress-text">0%</span>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -85,10 +85,22 @@ impl AppState {
     /// Recharger le modèle à la demande si nécessaire
     pub async fn ensure_model_loaded(&self) -> anyhow::Result<()> {
         if !self.is_model_loaded() {
-            tracing::info!("Rechargement de Phi-3-Mini...");
+            tracing::info!("Rechargement du modèle...");
             let dir = self.data_dir.join("models");
+            let profile = self.profile.lock().clone();
+            let device_preference = profile.device_preference.clone();
+            let selected_model = profile.selected_model.clone();
+
+            // Résoudre le nom de fichier
+            let model_filename = match selected_model.as_str() {
+                "phi-3-mini-q4" => "phi-3-mini-q4.gguf",
+                "phi-3.5-mini-q4" => "phi-3.5-mini-q4.gguf",
+                "phi-3-medium-q4" => "phi-3-medium-q4.gguf",
+                _ => "phi-3-mini-q4.gguf",
+            }.to_string();
+
             let engine = tokio::task::spawn_blocking(move || {
-                crate::llm::engine::LlmEngine::load(&dir)
+                crate::llm::engine::LlmEngine::load(&dir, &device_preference, &model_filename)
             }).await??;
             *self.llm.lock() = Some(engine);
         }

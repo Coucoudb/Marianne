@@ -2,6 +2,7 @@
 use crate::llm::model::{LoadedModel, ModelConfig};
 use crate::llm::sampler::Sampler;
 use crate::llm::tokenizer::MariTokenizer;
+use crate::profile::DevicePreference;
 use anyhow::{Context, Result};
 use candle_core::Tensor;
 use std::path::Path;
@@ -23,8 +24,8 @@ pub struct LlmEngine {
 
 impl LlmEngine {
     /// Charger le moteur complet (modèle GGUF + tokenizer)
-    pub fn load(models_dir: &Path) -> Result<Self> {
-        let model_path = models_dir.join("phi-3-mini-q4.gguf");
+    pub fn load(models_dir: &Path, device_preference: &DevicePreference, model_filename: &str) -> Result<Self> {
+        let model_path = models_dir.join(model_filename);
         let tokenizer_path = models_dir.join("tokenizer.json");
 
         if !model_path.exists() {
@@ -48,7 +49,7 @@ impl LlmEngine {
             config.repeat_last_n,
         );
 
-        let model = LoadedModel::from_gguf(&model_path, config)
+        let model = LoadedModel::from_gguf(&model_path, config, device_preference)
             .context("Échec du chargement du modèle Phi-3")?;
 
         let tokenizer = MariTokenizer::load(&tokenizer_path)
