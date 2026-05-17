@@ -87,7 +87,20 @@ jobs:
 
       - name: Install protobuf (Windows)
         if: matrix.platform == 'windows-latest'
-        run: choco install protoc cmake --yes
+        run: choco install protoc --yes
+
+      - name: Pin CMake to VS bundled version (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          # Use VS 2022 bundled cmake (3.29) instead of choco cmake 4.3
+          # cmake 4.3 has FindVulkan/ExternalProject incompatibilities
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $cmakeBin = "$vsPath\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
+          if (Test-Path $cmakeBin) {
+            echo "$cmakeBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            Write-Host "Using VS cmake from $cmakeBin"
+          }
 
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2.0" --locked
