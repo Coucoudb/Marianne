@@ -64,16 +64,17 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "VULKAN_SDK=$env:VULKAN_SDK"
-          # List actual contents for debugging
           if ($env:VULKAN_SDK -and (Test-Path $env:VULKAN_SDK)) {
             Get-ChildItem $env:VULKAN_SDK -Depth 0 | ForEach-Object { Write-Host "  $_" }
           }
-          # Verify key files exist
+          # Verify headers, libs and shader compiler
           $inc = Join-Path $env:VULKAN_SDK "Include\vulkan\vulkan.h"
           $lib = Join-Path $env:VULKAN_SDK "Lib\vulkan-1.lib"
-          if (-not (Test-Path $inc)) { Write-Error "Missing $inc"; exit 1 }
-          if (-not (Test-Path $lib)) { Write-Error "Missing $lib"; exit 1 }
-          Write-Host "Vulkan SDK verified OK"
+          $glslc = Join-Path $env:VULKAN_SDK "Bin\glslc.exe"
+          if (-not (Test-Path $inc))   { Write-Error "Missing $inc";   exit 1 }
+          if (-not (Test-Path $lib))   { Write-Error "Missing $lib";   exit 1 }
+          if (-not (Test-Path $glslc)) { Write-Error "Missing $glslc — needed for Vulkan shader compilation"; exit 1 }
+          Write-Host "Vulkan SDK verified OK (glslc found)"
 
       - name: Install protobuf (Linux)
         if: matrix.platform == 'ubuntu-latest'
@@ -123,6 +124,9 @@ jobs:
 
       - name: Build Tauri app
         working-directory: marianne
+        env:
+          RUST_BACKTRACE: '1'
+          CMAKE_VERBOSE_MAKEFILE: 'ON'
         run: cargo tauri build --target ${{ matrix.target }} -- --no-default-features --features ${{ matrix.features }}
 
       - name: Upload artifacts (Windows)
