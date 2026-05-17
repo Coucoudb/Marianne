@@ -35,6 +35,7 @@ const state = {
     currentConversationId: null,
     currentStreamingMessage: null,
     tokenBuffer: '',
+    stagedFiles: [],  // fichiers en attente d'envoi [{path, name}]
 };
 
 // ─── Éléments DOM ──────────────────────────────────────────────────────────────
@@ -79,7 +80,7 @@ function setupEventListeners() {
 
     // Activer/désactiver le bouton selon le contenu
     elements.userInput.addEventListener('input', () => {
-        elements.sendBtn.disabled = !elements.userInput.value.trim() || state.isGenerating;
+        updateSendButtonState();
         autoResizeTextarea();
     });
 
@@ -243,6 +244,15 @@ function setupTauriListeners() {
         }
     });
 
+    // Contradiction web/corpus — alerte utilisateur
+    listen('contradiction-warning', ({ payload }) => {
+        if (!state.currentStreamingMessage) return;
+        const warning = document.createElement('div');
+        warning.className = 'contradiction-badge';
+        warning.innerHTML = `<span class="contradiction-text">${payload.message}</span>`;
+        state.currentStreamingMessage.appendChild(warning);
+    });
+
     // Mise à jour corpus — notification
     listen('corpus-update-status', ({ payload }) => {
         if (payload.status === 'done' && payload.updated > 0) {
@@ -306,7 +316,13 @@ async function downloadModel() {
 
 async function sendMessage() {
     const message = elements.userInput.value.trim();
-    if (!message || state.isGenerating || !state.isModelLoaded) return;
+    const hasFiles = state.stagedFiles.length > 0;
+    if ((!message && !hasFiles) || state.isGenerating || !state.isModelLoaded) return;
+
+    // Si des fichiers sont en attente, déléguer à la logique documents
+    if (hasFiles) {
+        return sendMessageWithDocuments();
+    }
 
     state.isGenerating = true;
     showStopButton();
@@ -370,7 +386,7 @@ function showSendButton() {
             <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
         </svg>`;
     elements.sendBtn.onclick = sendMessage;
-    elements.sendBtn.disabled = !elements.userInput.value.trim();
+    updateSendButtonState();
 }
 
 // ─── Helpers UI ────────────────────────────────────────────────────────────────
@@ -614,50 +630,136 @@ async function openDocumentPicker() {
         const { open } = window.__TAURI__.dialog;
         const selected = await open({
             filters: [{ name: 'Documents', extensions: ['pdf', 'txt', 'md'] }],
-            multiple: false,
+            multiple: true,
         });
         if (selected) {
-            await analyzeDocument(selected);
+            // `selected` est un tableau si multiple: true, ou une string si un seul fichier
+            const paths = Array.isArray(selected) ? selected : [selected];
+            for (const filePath of paths) {
+                stageFile(filePath);
+            }
         }
     } catch (error) {
         console.error('Erreur sélection fichier:', error);
     }
 }
 
-async function analyzeDocument(filePath) {
-    if (state.isGenerating || !state.isModelLoaded) return;
+function stageFile(filePath) {
+    // Éviter les doublons
+    if (state.stagedFiles.some(f => f.path === filePath)) return;
+
+    const name = filePath.split(/[\\/]/).pop() || 'document';
+    state.stagedFiles.push({ path: filePath, name });
+    renderStagedFiles();
+    updateSendButtonState();
+    elements.userInput.focus();
+}
+
+function removeStagedFile(filePath) {
+    state.stagedFiles = state.stagedFiles.filter(f => f.path !== filePath);
+    renderStagedFiles();
+    updateSendButtonState();
+}
+
+function renderStagedFiles() {
+    const container = document.getElementById('staged-files');
+    if (state.stagedFiles.length === 0) {
+        container.style.display = 'none';
+        container.innerHTML = '';
+        return;
+    }
+
+    container.style.display = 'flex';
+    container.innerHTML = state.stagedFiles.map(f => `
+        <div class="staged-file-chip" data-path="${f.path.replace(/"/g, '&quot;')}">
+            <span class="file-icon">📄</span>
+            <span class="file-name" title="${f.name}">${f.name}</span>
+            <button class="remove-file" title="Retirer">&times;</button>
+        </div>
+    `).join('');
+
+    container.querySelectorAll('.remove-file').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const chip = btn.closest('.staged-file-chip');
+            removeStagedFile(chip.dataset.path);
+        });
+    });
+}
+
+function updateSendButtonState() {
+    const hasText = elements.userInput.value.trim().length > 0;
+    const hasFiles = state.stagedFiles.length > 0;
+    elements.sendBtn.disabled = (!hasText && !hasFiles) || state.isGenerating;
+}
+
+async function sendMessageWithDocuments() {
+    const message = elements.userInput.value.trim();
+    const files = [...state.stagedFiles];
+
+    // Réinitialiser les fichiers en attente
+    state.stagedFiles = [];
+    renderStagedFiles();
+
+    state.isGenerating = true;
+    showStopButton();
+
+    // Afficher le message utilisateur avec les fichiers
+    const fileLabels = files.map(f => `📄 ${f.name}`).join(', ');
+    const displayMessage = message
+        ? `${fileLabels}\n\n${message}`
+        : fileLabels;
+    appendMessage('user', displayMessage);
+    elements.userInput.value = '';
+    autoResizeTextarea();
+
+    // Préparer la zone de réponse
+    const assistantEl = appendMessage('assistant', '', true);
+    state.currentStreamingMessage = assistantEl;
+    state.tokenBuffer = '';
+
+    const contentEl = assistantEl.querySelector('.message-content');
+    contentEl.innerHTML = '<span class="thinking">Marianne analyse le(s) document(s)...</span>';
 
     try {
-        const result = await invoke('extract_document', {
-            request: { file_path: filePath, question: null },
-        });
+        // Extraire le texte de chaque fichier
+        const extractions = [];
+        for (const file of files) {
+            const result = await invoke('extract_document', {
+                request: { file_path: file.path, question: null },
+            });
+            extractions.push(result);
+        }
 
-        // Afficher le fichier comme message utilisateur
-        appendMessage('user', `📄 Analyse de **${result.file_name}** (${result.char_count} caractères)`);
+        // Construire le prompt combiné
+        let prompt;
+        if (extractions.length === 1) {
+            const doc = extractions[0];
+            const question = message || "Explique ce document en langage clair et dis-moi ce que je dois faire.";
+            prompt = `Voici un document administratif français (${doc.file_name}) :\n\n---\n${doc.text}\n---\n\nQuestion : ${question}`;
+        } else {
+            const docsText = extractions.map((doc, i) =>
+                `── Document ${i + 1} : ${doc.file_name} ──\n${doc.text}`
+            ).join('\n\n');
+            const question = message || "Explique ces documents en langage clair et dis-moi ce que je dois faire.";
+            prompt = `Voici ${extractions.length} documents administratifs français :\n\n${docsText}\n\n---\n\nQuestion : ${question}`;
+        }
 
-        // Envoyer le prompt d'analyse via le pipeline chat normal
-        state.isGenerating = true;
-        elements.sendBtn.disabled = true;
-
-        const assistantEl = appendMessage('assistant', '', true);
-        state.currentStreamingMessage = assistantEl;
-        state.tokenBuffer = '';
-
-        const contentEl = assistantEl.querySelector('.message-content');
-        contentEl.innerHTML = '<span class="thinking">Marianne analyse le document...</span>';
-
+        // Envoyer via le pipeline chat normal
         const convId = await invoke('send_message', {
             request: {
-                message: result.prompt,
+                message: prompt,
                 conversation_id: state.currentConversationId,
                 max_tokens: 1024,
             },
         });
         state.currentConversationId = convId;
     } catch (error) {
-        appendMessage('assistant', `❌ ${error}`);
+        assistantEl.querySelector('.message-content').textContent = `❌ ${error}`;
+        assistantEl.classList.remove('streaming');
         state.isGenerating = false;
-        elements.sendBtn.disabled = false;
+        state.currentStreamingMessage = null;
+        showSendButton();
     }
 }
 
@@ -679,18 +781,17 @@ function setupDragAndDrop() {
         e.preventDefault();
         messagesEl.classList.remove('drag-active');
 
-        // Tauri 2 : les fichiers droppés sont dans l'événement natif
         const files = e.dataTransfer?.files;
         if (files && files.length > 0) {
-            const file = files[0];
-            const ext = file.name.split('.').pop()?.toLowerCase();
-            if (['pdf', 'txt', 'md'].includes(ext)) {
-                // En Tauri 2, on utilise le path natif si disponible
-                if (file.path) {
-                    await analyzeDocument(file.path);
+            for (const file of files) {
+                const ext = file.name.split('.').pop()?.toLowerCase();
+                if (['pdf', 'txt', 'md'].includes(ext)) {
+                    if (file.path) {
+                        stageFile(file.path);
+                    }
+                } else {
+                    appendMessage('assistant', `⚠️ Fichier « ${file.name} » ignoré — format non supporté. Utilisez PDF, TXT ou MD.`);
                 }
-            } else {
-                appendMessage('assistant', '⚠️ Format non supporté. Utilisez un fichier PDF, TXT ou MD.');
             }
         }
     });

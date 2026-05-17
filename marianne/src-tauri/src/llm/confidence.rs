@@ -1,8 +1,8 @@
 /// Évaluation de la confiance de la réponse RAG locale
 /// Si le score est bas, Marianne déclenche la recherche web complémentaire
 
-/// Seuil minimum de confiance pour ne pas déclencher la recherche web
-pub const CONFIDENCE_THRESHOLD: f32 = 0.45;
+/// Seuil de base de confiance pour ne pas déclencher la recherche web
+const BASE_CONFIDENCE_THRESHOLD: f32 = 0.45;
 
 /// Message de refus pour les questions hors sujet
 pub const OFF_TOPIC_RESPONSE: &str = "Je suis Marianne, spécialisée dans l'administration et les droits en France. Cette question ne fait pas partie de mes compétences. Posez-moi une question sur vos droits, démarches ou obligations en France ! 🇫🇷";
@@ -240,11 +240,12 @@ pub fn is_conversational(query: &str) -> bool {
     false
 }
 
-/// Évaluer la confiance à partir des résultats RAG
+/// Évaluer la confiance à partir des résultats RAG avec seuil adaptatif par catégorie
 pub fn evaluate_rag_confidence(
     rag_scores: &[f32],
     rag_context_len: usize,
     query_len: usize,
+    category: &str,
 ) -> ConfidenceResult {
     if rag_scores.is_empty() {
         return ConfidenceResult {
@@ -276,12 +277,14 @@ pub fn evaluate_rag_confidence(
         confidence += ratio * 0.15;
     }
 
-    let should_search_web = confidence < CONFIDENCE_THRESHOLD;
+    let should_search_web = confidence < adaptive_threshold(category);
 
     let reason = if should_search_web {
         format!(
-            "Confiance faible ({:.0}%) — recherche web recommandée",
-            confidence * 100.0
+            "Confiance faible ({:.0}%, seuil {:.0}% pour {}) — recherche web recommandée",
+            confidence * 100.0,
+            adaptive_threshold(category) * 100.0,
+            category,
         )
     } else {
         format!("Confiance suffisante ({:.0}%)", confidence * 100.0)
@@ -299,6 +302,72 @@ pub struct ConfidenceResult {
     pub score: f32,
     pub reason: String,
     pub should_search_web: bool,
+}
+
+/// Seuil de confiance adaptatif par catégorie
+/// Les catégories avec un bon corpus local ont un seuil plus élevé (plus exigeant)
+/// Les catégories moins couvertes ont un seuil plus bas (recherche web plus facile)
+fn adaptive_threshold(category: &str) -> f32 {
+    match category {
+        // Bien couvert par le corpus → seuil élevé, on fait confiance au local
+        "caf" | "droit_travail" | "logement" | "chomage" => BASE_CONFIDENCE_THRESHOLD + 0.05,
+        // Moyennement couvert → seuil standard
+        "impots" | "sante" | "retraite" | "urssaf" | "identite" | "recours" => BASE_CONFIDENCE_THRESHOLD,
+        // Peu couvert → seuil bas, recherche web plus fréquente
+        "renovation" | "consommation" | "discrimination" | "institutions" | "statistiques" => BASE_CONFIDENCE_THRESHOLD - 0.10,
+        // Catégorie inconnue → seuil standard
+        _ => BASE_CONFIDENCE_THRESHOLD,
+    }
+}
+
+/// Détecter si l'utilisateur reformule sa question (signe d'insatisfaction)
+/// Retourne true si le message actuel est une reformulation du message précédent
+pub fn detect_reformulation(current: &str, previous: &str) -> bool {
+    if previous.is_empty() || current.is_empty() {
+        return false;
+    }
+
+    let cur_lower = current.to_lowercase();
+    let prev_lower = previous.to_lowercase();
+
+    // Même question exacte → pas une reformulation, c'est un retry
+    if cur_lower == prev_lower {
+        return false;
+    }
+
+    // Extraire les mots significatifs (> 3 chars)
+    let cur_words: std::collections::HashSet<&str> = cur_lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() > 3)
+        .collect();
+    let prev_words: std::collections::HashSet<&str> = prev_lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() > 3)
+        .collect();
+
+    if cur_words.is_empty() || prev_words.is_empty() {
+        return false;
+    }
+
+    // Overlap élevé mais pas identique = reformulation
+    let intersection = cur_words.intersection(&prev_words).count();
+    let union = cur_words.union(&prev_words).count();
+    let jaccard = intersection as f32 / union as f32;
+
+    // Jaccard entre 0.4 et 0.9 = reformulation probable
+    jaccard > 0.4 && jaccard < 0.9
+}
+
+/// Détecter si l'utilisateur est satisfait (remerciement positif)
+pub fn detect_satisfaction(message: &str) -> bool {
+    let q = message.to_lowercase().trim().to_string();
+    let positive = [
+        "merci", "parfait", "super", "génial", "excellent", "top",
+        "nickel", "formidable", "c'est clair", "bien compris",
+        "c'est noté", "très bien", "ok merci", "merci beaucoup",
+        "merci bien", "je comprends",
+    ];
+    positive.iter().any(|p| q.contains(p))
 }
 
 /// Déterminer la catégorie de la question pour orienter la recherche web

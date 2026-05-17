@@ -54,6 +54,12 @@ pub struct ConfidenceInfo {
     pub web_search_triggered: bool,
 }
 
+#[derive(Serialize, Clone)]
+pub struct ContradictionWarning {
+    pub conversation_id: String,
+    pub message: String,
+}
+
 /// Envoyer un message et recevoir la réponse en streaming
 #[tauri::command]
 pub async fn send_message(
@@ -106,35 +112,73 @@ pub async fn send_message(
     // 0b. Messages conversationnels — skip RAG et recherche web
     let is_conv = is_conversational(&request.message);
 
-    // 1. Pipeline RAG : trouver le contexte pertinent (skip pour conversationnel)
-    let (rag_context, sources, rag_scores) = if is_conv {
-        (String::new(), Vec::new(), Vec::new())
+    // 1. Détection de catégorie (utilisée partout)
+    let category = detect_category(&request.message);
+
+    // 1b. Pipeline parallèle : RAG + historique en même temps
+    let (rag_results, history) = if is_conv {
+        // Skip RAG pour les messages conversationnels, mais charger l'historique
+        let hist = state
+            .history
+            .get_conversation(&conv_id)
+            .await
+            .unwrap_or_default();
+        (Vec::new(), hist)
     } else {
-        let retriever = Retriever::new(state.vector_store.clone());
-        match retriever.retrieve(&request.message, 3).await {
-            Ok(rag_results) => {
-                let context = Retriever::format_context(&rag_results);
-                let scores: Vec<f32> = rag_results.iter().map(|r| r.similarity).collect();
-                let srcs: Vec<String> = rag_results
-                    .iter()
-                    .map(|r| r.source.clone())
-                    .collect::<std::collections::HashSet<_>>()
-                    .into_iter()
-                    .collect();
-                (context, srcs, scores)
+        let store_clone = state.vector_store.clone();
+        let graph_clone = state.knowledge_graph.clone();
+        let msg_clone = request.message.clone();
+        let cat_clone = category.to_string();
+        let history_db = state.history.clone();
+        let conv_id_hist = conv_id.clone();
+
+        // Exécution parallèle : RAG search + history fetch
+        let (rag_res, hist_res) = tokio::join!(
+            async {
+                let r = Retriever::new(store_clone, graph_clone);
+                r.retrieve(&msg_clone, 5, Some(&cat_clone)).await.unwrap_or_default()
+            },
+            async {
+                history_db.get_conversation(&conv_id_hist).await.unwrap_or_default()
             }
-            Err(e) => {
-                tracing::debug!("RAG non disponible, génération sans contexte : {}", e);
-                (String::new(), Vec::new(), Vec::new())
-            }
-        }
+        );
+
+        (rag_res, hist_res)
     };
 
-    // 1b. Évaluer la confiance et déclencher la recherche web si nécessaire
+    let rag_context = if rag_results.is_empty() {
+        String::new()
+    } else {
+        Retriever::format_context(&rag_results)
+    };
+
+    let rag_scores: Vec<f32> = rag_results.iter().map(|r| r.score).collect();
+    let sources: Vec<String> = rag_results
+        .iter()
+        .map(|r| r.source.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    // 1c. Détecter les contradictions web/corpus
+    if !is_conv {
+        if let Some(warning) = Retriever::detect_contradictions(&rag_results) {
+            let _ = window.emit(
+                "contradiction-warning",
+                ContradictionWarning {
+                    conversation_id: conv_id.clone(),
+                    message: warning,
+                },
+            );
+        }
+    }
+
+    // 1d. Évaluer la confiance avec seuil adaptatif par catégorie
     let confidence = evaluate_rag_confidence(
         &rag_scores,
         rag_context.len(),
         request.message.len(),
+        category,
     );
 
     // Ne pas afficher le badge confiance/recherche web pour les messages conversationnels
@@ -174,7 +218,6 @@ pub async fn send_message(
             },
         );
 
-        let category = detect_category(&request.message);
         let cache = WebCache::new(&state.data_dir.join("web_cache"));
         
         let web_results = if let Some(cached) = cache.get(&request.message, category) {
@@ -269,12 +312,7 @@ pub async fn send_message(
         format!("{}\n\n{}", rag_context, web_context)
     };
 
-    // 2. Récupérer l'historique de conversation
-    let history = state
-        .history
-        .get_conversation(&conv_id)
-        .await
-        .unwrap_or_default();
+    // 2. Historique déjà chargé en parallèle (variable `history`)
 
     // 3. Construire le prompt
     let profile = state.profile.lock().clone();

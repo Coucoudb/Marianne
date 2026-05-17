@@ -200,6 +200,59 @@ mod backend {
             Ok(search_results)
         }
 
+        /// Recherche Full-Text (BM25) via l'index FTS de LanceDB
+        pub async fn search_fts(
+            &self,
+            query: &str,
+            top_k: usize,
+        ) -> Result<Vec<SearchResult>> {
+            if query.trim().is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let conn = self.connect().await?;
+            let tables = conn.table_names().execute().await?;
+            if !tables.contains(&"knowledge".to_string()) {
+                return Ok(Vec::new());
+            }
+            let table = conn.open_table("knowledge").execute().await?;
+            if table.count_rows(None).await? == 0 {
+                return Ok(Vec::new());
+            }
+
+            // Recherche FTS via LanceDB
+            let results = table
+                .query()
+                .full_text_search(lancedb::index::scalar::FullTextSearchQuery::new(query.to_string()))
+                .limit(top_k)
+                .execute()
+                .await?
+                .try_collect::<Vec<_>>()
+                .await?;
+
+            let mut search_results = Vec::new();
+            for (rank, batch) in results.iter().enumerate() {
+                let text_col = batch.column_by_name("text")
+                    .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+                let source_col = batch.column_by_name("source")
+                    .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+
+                if let (Some(texts), Some(sources)) = (text_col, source_col) {
+                    for i in 0..batch.num_rows() {
+                        // Score FTS simulé par rang (1.0 pour le premier, décroissant)
+                        let similarity = 1.0 / (1.0 + (rank * batch.num_rows() + i) as f32 * 0.1);
+                        search_results.push(SearchResult {
+                            text: texts.value(i).to_string(),
+                            source: sources.value(i).to_string(),
+                            similarity,
+                        });
+                    }
+                }
+            }
+
+            Ok(search_results)
+        }
+
         /// Créer les index IVF-PQ + FTS après ingestion complète du corpus
         /// À appeler une seule fois — les index sont ensuite persistés sur disque
         pub async fn build_all_indexes(&self) -> Result<()> {
@@ -349,6 +402,49 @@ mod backend {
         pub async fn build_all_indexes(&self) -> Result<()> {
             tracing::debug!("build_all_indexes: no-op en mode mémoire");
             Ok(())
+        }
+
+        /// Recherche Full-Text en mémoire (brute-force substring matching)
+        pub async fn search_fts(
+            &self,
+            query: &str,
+            top_k: usize,
+        ) -> Result<Vec<SearchResult>> {
+            if query.trim().is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let store = self.chunks.read();
+            let keywords: Vec<&str> = query.split_whitespace()
+                .filter(|w| w.len() > 2)
+                .collect();
+
+            if keywords.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let mut scored: Vec<SearchResult> = store.iter()
+                .filter_map(|c| {
+                    let text_lower = c.text.to_lowercase();
+                    let matches = keywords.iter()
+                        .filter(|kw| text_lower.contains(&kw.to_lowercase()))
+                        .count();
+                    if matches > 0 {
+                        let similarity = matches as f32 / keywords.len() as f32;
+                        Some(SearchResult {
+                            text: c.text.clone(),
+                            source: c.source.clone(),
+                            similarity,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            scored.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap());
+            scored.truncate(top_k);
+            Ok(scored)
         }
 
         /// Supprimer tous les chunks d'une source donnée
