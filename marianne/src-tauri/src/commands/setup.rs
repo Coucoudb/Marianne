@@ -43,7 +43,20 @@ pub async fn get_device_info(state: State<'_, AppState>) -> Result<DeviceInfo, S
             // Avec llama.cpp, le device est déterminé par la config n_gpu_layers
             let profile = state.profile.lock();
             let (backend, label) = match profile.device_preference {
-                DevicePreference::Gpu if gpu_available => ("cuda".into(), "GPU CUDA".into()),
+                DevicePreference::Gpu if gpu_available => {
+                    // Déterminer le type de backend GPU
+                    let gpu_label = llama_cpp_2::list_llama_ggml_backend_devices()
+                        .iter()
+                        .find(|d| matches!(
+                            d.device_type,
+                            llama_cpp_2::LlamaBackendDeviceType::Gpu
+                                | llama_cpp_2::LlamaBackendDeviceType::IntegratedGpu
+                                | llama_cpp_2::LlamaBackendDeviceType::Accelerator
+                        ))
+                        .map(|d| d.description.clone())
+                        .unwrap_or_else(|| "GPU".into());
+                    ("gpu".into(), format!("GPU ({})", gpu_label))
+                }
                 _ => {
                     let threads = num_cpus::get().saturating_sub(1).max(1);
                     ("cpu".into(), format!("CPU ({threads} threads)"))
@@ -340,16 +353,18 @@ fn seed_corpus_from_resources(window: &Window, corpus_dir: &std::path::Path) {
     }
 }
 
-/// Détecter si un GPU est disponible sur cette machine
+/// Détecter si un GPU est disponible sur cette machine (runtime)
 fn is_gpu_available() -> bool {
-    #[cfg(feature = "cuda")]
-    {
-        // Avec llama.cpp, la disponibilité CUDA est détectée au runtime
-        // Si le feature cuda est activé, on suppose que le GPU est dispo
-        return true;
-    }
-    #[allow(unreachable_code)]
-    false
+    llama_cpp_2::list_llama_ggml_backend_devices()
+        .iter()
+        .any(|d| {
+            matches!(
+                d.device_type,
+                llama_cpp_2::LlamaBackendDeviceType::Gpu
+                    | llama_cpp_2::LlamaBackendDeviceType::IntegratedGpu
+                    | llama_cpp_2::LlamaBackendDeviceType::Accelerator
+            )
+        })
 }
 
 /// Récupérer la préférence de device + disponibilité GPU

@@ -89,9 +89,43 @@ impl LlmEngine {
         // Configurer les paramètres du modèle
         let config = EngineConfig::default();
 
+        // Détection runtime des devices GPU disponibles
+        let gpu_devices: Vec<_> = llama_cpp_2::list_llama_ggml_backend_devices()
+            .into_iter()
+            .filter(|d| {
+                matches!(
+                    d.device_type,
+                    llama_cpp_2::LlamaBackendDeviceType::Gpu
+                        | llama_cpp_2::LlamaBackendDeviceType::IntegratedGpu
+                        | llama_cpp_2::LlamaBackendDeviceType::Accelerator
+                )
+            })
+            .collect();
+
+        let has_gpu = !gpu_devices.is_empty();
+
+        for dev in &gpu_devices {
+            tracing::info!(
+                "🎮 GPU détecté : {} ({:?}, {} Mo VRAM)",
+                dev.description,
+                dev.device_type,
+                dev.memory_free / 1_048_576,
+            );
+        }
+
         let n_gpu_layers = match device_preference {
-            DevicePreference::Cpu => 0,
-            DevicePreference::Gpu => config.n_gpu_layers,
+            DevicePreference::Cpu => {
+                tracing::info!("💻 Mode CPU forcé par préférence utilisateur");
+                0
+            }
+            DevicePreference::Gpu if has_gpu => {
+                tracing::info!("🚀 GPU disponible — offloading {} couches", config.n_gpu_layers);
+                config.n_gpu_layers
+            }
+            DevicePreference::Gpu => {
+                tracing::info!("💻 Aucun GPU détecté — fallback CPU automatique");
+                0
+            }
         };
 
         let model_params = pin!(LlamaModelParams::default().with_n_gpu_layers(n_gpu_layers));
@@ -99,7 +133,7 @@ impl LlmEngine {
         let model = LlamaModel::load_from_file(&backend, &model_path, &model_params)
             .map_err(|e| anyhow::anyhow!("Erreur chargement modèle : {:?}", e))?;
 
-        let device_label = if n_gpu_layers > 0 { "GPU" } else { "CPU" };
+        let device_label = if n_gpu_layers > 0 && has_gpu { "GPU" } else { "CPU" };
         let size_mb = std::fs::metadata(&model_path)
             .map(|m| m.len() / 1_048_576)
             .unwrap_or(0);

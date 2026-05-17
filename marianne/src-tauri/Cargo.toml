@@ -76,7 +76,9 @@ pdf-extract = "0.7"
 default = ["custom-protocol", "fastembed", "vectordb"]
 custom-protocol = ["tauri/custom-protocol"]
 vectordb = ["dep:lancedb", "dep:arrow-array", "dep:arrow-schema"]
-cuda = ["llama-cpp-2/cuda", "fastembed", "vectordb"]
+cuda = ["llama-cpp-2/cuda"]
+vulkan = ["llama-cpp-2/vulkan"]
+metal = ["llama-cpp-2/metal"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

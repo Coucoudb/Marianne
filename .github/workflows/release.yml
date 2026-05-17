@@ -20,15 +20,15 @@ jobs:
         include:
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
-            features: "custom-protocol,fastembed,vectordb"
+            features: "custom-protocol,fastembed,vectordb,vulkan"
             artifact-name: marianne-windows-x64
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            features: "custom-protocol,fastembed,vectordb"
+            features: "custom-protocol,fastembed,vectordb,vulkan"
             artifact-name: marianne-linux-x64
           - platform: macos-latest
             target: aarch64-apple-darwin
-            features: "custom-protocol,fastembed,vectordb"
+            features: "custom-protocol,fastembed,vectordb,metal"
             artifact-name: marianne-macos-arm64
           # macos-13 (x86_64) désactivé — runner obsolète
           # - platform: macos-13
@@ -52,6 +52,13 @@ jobs:
           workspaces: marianne/src-tauri
           key: ${{ matrix.target }}
 
+      - name: Install Vulkan SDK (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: humbletim/install-vulkan-sdk@v1.2.1
+        with:
+          version: latest
+          cache: true
+
       - name: Install protobuf (Linux)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -65,7 +72,9 @@ jobs:
             librsvg2-dev \
             patchelf \
             libssl-dev \
-            libgtk-3-dev
+            libgtk-3-dev \
+            libvulkan-dev \
+            vulkan-tools
 
       - name: Install protobuf (macOS)
         if: startsWith(matrix.platform, 'macos')
@@ -140,7 +149,7 @@ jobs:
             - Corpus juridique français intégré
             - Recherche web sur sources officielles
             - Analyse de documents PDF
-            - Accélération GPU CUDA (build séparé ou compilation locale)
+            - Accélération GPU automatique (Vulkan sur Windows/Linux, Metal sur macOS)
 
             ### Installation
             Téléchargez l'installeur correspondant à votre OS ci-dessous.
