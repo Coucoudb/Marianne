@@ -56,29 +56,17 @@ jobs:
         if: matrix.platform == 'windows-latest'
         uses: humbletim/install-vulkan-sdk@v1.2
         with:
-          version: 1.4.350.0
+          version: 1.4.309.0
           cache: true
 
       - name: Verify Vulkan SDK env (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          # The install action may not export VULKAN_SDK to GITHUB_ENV; fix it
-          if (-not $env:VULKAN_SDK) {
-            $sdkRoot = "C:\VulkanSDK"
-            $installed = Get-ChildItem $sdkRoot -Directory -ErrorAction SilentlyContinue |
-                         Sort-Object Name -Descending | Select-Object -First 1
-            if ($installed) {
-              $sdkPath = $installed.FullName
-              Write-Host "Detected Vulkan SDK at $sdkPath"
-              echo "VULKAN_SDK=$sdkPath" >> $env:GITHUB_ENV
-              echo "$sdkPath\Bin" >> $env:GITHUB_PATH
-            } else {
-              Write-Error "Vulkan SDK not found under $sdkRoot"
-              exit 1
-            }
-          } else {
-            Write-Host "VULKAN_SDK=$env:VULKAN_SDK"
+          Write-Host "VULKAN_SDK=$env:VULKAN_SDK"
+          # List actual contents for debugging
+          if ($env:VULKAN_SDK -and (Test-Path $env:VULKAN_SDK)) {
+            Get-ChildItem $env:VULKAN_SDK -Depth 0 | ForEach-Object { Write-Host "  $_" }
           }
           # Verify key files exist
           $inc = Join-Path $env:VULKAN_SDK "Include\vulkan\vulkan.h"
