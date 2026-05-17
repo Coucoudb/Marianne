@@ -106,31 +106,27 @@ jobs:
         if: matrix.platform == 'windows-latest'
         run: choco install protoc --yes
 
-      - name: Pin CMake to VS bundled version (Windows)
+      - name: Setup MSVC dev environment (Windows)
         if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        run: |
-          # Use VS 2022 bundled cmake (3.29) instead of choco cmake 4.3
-          # cmake 4.3 has FindVulkan/ExternalProject incompatibilities
-          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          $cmakeBin = "$vsPath\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
-          if (Test-Path $cmakeBin) {
-            echo "$cmakeBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            Write-Host "Using VS cmake from $cmakeBin"
-          }
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
-      - name: Shorten build path & fix MSVC PDB locks (Windows)
+      - name: Shorten build path & fix Vulkan shader build (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          # llama-cpp Vulkan ExternalProject creates deeply nested paths that
-          # exceed Windows MAX_PATH (260 chars) and cause PDB locking errors.
-          # Fix: use a short target dir + /FS flag for serialized PDB access.
+          # 1. Short target dir to avoid MAX_PATH in deeply nested ExternalProject paths
           echo "CARGO_TARGET_DIR=D:\cb" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          New-Item -ItemType Directory -Path "D:\cb" -Force | Out-Null
+          # 2. Use Ninja generator instead of VS to fix ExternalProject race condition
+          #    (MSBuild runs configure/install steps in parallel on different nodes,
+          #     causing cmake_install.cmake to be missing when install runs)
+          echo "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # 3. /FS for serialized PDB access (safety net)
           echo "CFLAGS=/FS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "CXXFLAGS=/FS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          New-Item -ItemType Directory -Path "D:\cb" -Force | Out-Null
-          Write-Host "CARGO_TARGET_DIR=D:\cb (avoids MAX_PATH in Vulkan shader gen)"
+          Write-Host "CARGO_TARGET_DIR=D:\cb, CMAKE_GENERATOR=Ninja"
 
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2.0" --locked
