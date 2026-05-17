@@ -24,7 +24,8 @@ impl WebSearcher {
         let client = Client::builder()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .timeout(Duration::from_secs(8))
-            .redirect(reqwest::redirect::Policy::limited(5))
+            .redirect(reqwest::redirect::Policy::limited(3))
+            .https_only(true)
             .build()?;
         Ok(Self { client })
     }
@@ -296,7 +297,16 @@ fn extract_links(html: &str, source: &OfficialSource) -> Vec<(String, String)> {
                         format!("https://{}/{}", source.allowed_domains[0], href)
                     };
 
-                    if !source.allowed_domains.iter().any(|d| full_url.contains(d)) {
+                    if !source.allowed_domains.iter().any(|d| {
+                        // Secure domain check: parse URL and verify host ends with allowed domain
+                        match url::Url::parse(&full_url) {
+                            Ok(parsed) => match parsed.host_str() {
+                                Some(host) => host == *d || host.ends_with(&format!(".{}", d)),
+                                None => false,
+                            },
+                            Err(_) => false,
+                        }
+                    }) {
                         continue;
                     }
 

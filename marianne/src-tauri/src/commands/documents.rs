@@ -29,6 +29,18 @@ pub async fn extract_document(
         return Err("Fichier introuvable.".to_string());
     }
 
+    // Security: canonicalize path and reject directory traversal
+    let canonical = path.canonicalize().map_err(|_| "Chemin de fichier invalide.".to_string())?;
+
+    // Block access to system directories
+    let path_str = canonical.to_string_lossy().to_lowercase();
+    let blocked_prefixes = ["c:\\windows", "c:\\program", "/etc", "/usr", "/bin", "/sbin", "/var"];
+    if blocked_prefixes.iter().any(|p| path_str.starts_with(p)) {
+        return Err("Accès refusé : répertoire système protégé.".to_string());
+    }
+
+    let path = &canonical;
+
     let file_name = path
         .file_name()
         .and_then(|n| n.to_str())

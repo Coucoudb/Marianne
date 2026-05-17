@@ -163,7 +163,11 @@ mod backend {
                 .distance_type(lancedb::DistanceType::Cosine);
 
             if let Some(cat) = category_filter {
-                query = query.only_if(format!("category = '{}'", cat));
+                // Sanitize: only allow alphanumeric + underscore for category
+                let safe_cat: String = cat.chars()
+                    .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+                    .collect();
+                query = query.only_if(format!("category = '{}'", safe_cat));
             }
 
             let results = query.execute().await?.try_collect::<Vec<_>>().await?;
@@ -229,8 +233,10 @@ mod backend {
             if !tables.contains(&"knowledge".to_string()) {
                 return Ok(());
             }
+            // Sanitize source: escape single quotes to prevent injection
+            let safe_source = source.replace('\'', "''");
             let table = conn.open_table("knowledge").execute().await?;
-            table.delete(&format!("source = '{}'", source)).await?;
+            table.delete(&format!("source = '{}'", safe_source)).await?;
             tracing::info!("Supprimé les chunks de source '{}'", source);
             Ok(())
         }

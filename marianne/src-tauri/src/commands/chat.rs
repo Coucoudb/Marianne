@@ -61,6 +61,14 @@ pub async fn send_message(
     state: State<'_, AppState>,
     request: ChatRequest,
 ) -> Result<String, String> {
+    // Security: limit input message length to prevent DoS
+    if request.message.len() > 10_000 {
+        return Err("Message trop long (max 10 000 caractères).".to_string());
+    }
+    if request.message.trim().is_empty() {
+        return Err("Message vide.".to_string());
+    }
+
     let start_time = std::time::Instant::now();
     let conv_id = request
         .conversation_id

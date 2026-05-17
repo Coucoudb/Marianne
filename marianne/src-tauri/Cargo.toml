@@ -63,11 +63,15 @@ bincode = "1"
 # Recherche web (Phase 8)
 scraper = "0.19"
 urlencoding = "2"
+url = "2"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 regex-lite = "0.1"
 
 # Déduplication RAG (U1)
 dashmap = "6"
+
+# Vérification intégrité modèles
+sha2 = "0.10"
 
 # Analyse de documents (U4)
 pdf-extract = "0.7"

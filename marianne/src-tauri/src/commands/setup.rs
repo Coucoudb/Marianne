@@ -3,7 +3,8 @@ use crate::profile::DevicePreference;
 use crate::state::AppState;
 use futures_util::StreamExt;
 use reqwest::Client;
-use std::io::{Seek, SeekFrom, Write};
+use sha2::{Sha256, Digest};
+use std::io::{Read, Seek, SeekFrom, Write};
 use tauri::{Emitter, State, Window};
 
 #[derive(serde::Serialize, Clone)]
@@ -109,6 +110,8 @@ pub async fn download_model(
         (
             "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf",
             "phi-3-mini-q4.gguf",
+            // SHA256 of the GGUF file from HuggingFace — update when model changes
+            Option::<&str>::None, // TODO: set expected hash once known, e.g. Some("abc123...")
         ),
     ];
 
@@ -117,7 +120,7 @@ pub async fn download_model(
         .build()
         .map_err(|e| e.to_string())?;
 
-    for (url, filename) in downloads {
+    for (url, filename, expected_sha256) in &downloads {
         let file_path = models_dir.join(filename);
 
         if file_path.exists() {
@@ -140,7 +143,7 @@ pub async fn download_model(
             already_downloaded / 1_048_576
         );
 
-        let mut request = client.get(url);
+        let mut request = client.get(*url);
         if already_downloaded > 0 {
             request = request.header("Range", format!("bytes={}-", already_downloaded));
         }
@@ -192,7 +195,29 @@ pub async fn download_model(
         }
 
         std::fs::rename(&partial_path, &file_path).map_err(|e| e.to_string())?;
-        tracing::info!("✅ {} téléchargé et validé", filename);
+
+        // Verify file integrity via SHA256 if expected hash is provided
+        if let Some(expected_hash) = expected_sha256 {
+            let mut hasher = Sha256::new();
+            let mut f = std::fs::File::open(&file_path).map_err(|e| e.to_string())?;
+            let mut buf = vec![0u8; 1_048_576]; // 1MB buffer
+            loop {
+                let n = f.read(&mut buf).map_err(|e| e.to_string())?;
+                if n == 0 { break; }
+                hasher.update(&buf[..n]);
+            }
+            let computed = format!("{:x}", hasher.finalize());
+            if computed != *expected_hash {
+                std::fs::remove_file(&file_path).ok();
+                return Err(format!(
+                    "Vérification d'intégrité échouée pour {}. Hash attendu: {}, obtenu: {}",
+                    filename, expected_hash, computed
+                ));
+            }
+            tracing::info!("✅ {} téléchargé et vérifié (SHA256 OK)", filename);
+        } else {
+            tracing::warn!("⚠️ {} téléchargé sans vérification de hash", filename);
+        }
     }
 
     Ok(())

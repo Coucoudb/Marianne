@@ -4,6 +4,30 @@
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
+// ─── Sécurité : sanitization du HTML généré par marked ─────────────────────────
+function sanitizeHtml(html) {
+    // Remove javascript: links, on* event handlers, and dangerous tags
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    // Remove script/iframe/object/embed tags
+    div.querySelectorAll('script, iframe, object, embed, form').forEach(el => el.remove());
+    // Remove event handlers and javascript: hrefs
+    div.querySelectorAll('*').forEach(el => {
+        for (const attr of [...el.attributes]) {
+            if (attr.name.startsWith('on') || 
+                (attr.name === 'href' && attr.value.trim().toLowerCase().startsWith('javascript:')) ||
+                (attr.name === 'src' && attr.value.trim().toLowerCase().startsWith('javascript:'))) {
+                el.removeAttribute(attr.name);
+            }
+        }
+    });
+    return div.innerHTML;
+}
+
+function safeMarkedParse(text) {
+    return sanitizeHtml(marked.parse(text));
+}
+
 // ─── État de l'application ─────────────────────────────────────────────────────
 const state = {
     isModelLoaded: false,
@@ -99,7 +123,7 @@ function setupTauriListeners() {
         state.tokenBuffer += payload.token;
         const contentEl = state.currentStreamingMessage.querySelector('.message-content');
         if (contentEl) {
-            contentEl.innerHTML = marked.parse(state.tokenBuffer);
+            contentEl.innerHTML = safeMarkedParse(state.tokenBuffer);
             scrollToBottom();
         }
     });
@@ -113,7 +137,7 @@ function setupTauriListeners() {
         // Ré-afficher la réponse nettoyée (supprime les notes parasites du streaming)
         const contentEl = state.currentStreamingMessage.querySelector('.message-content');
         if (contentEl && payload.full_response) {
-            contentEl.innerHTML = marked.parse(payload.full_response);
+            contentEl.innerHTML = safeMarkedParse(payload.full_response);
         }
 
         // Pied de message : sources + stats
@@ -362,7 +386,7 @@ function appendMessage(role, content, isStreaming = false) {
     contentEl.className = 'message-content';
 
     if (role === 'assistant' && content) {
-        contentEl.innerHTML = marked.parse(content);
+        contentEl.innerHTML = safeMarkedParse(content);
     } else {
         contentEl.textContent = content;
     }

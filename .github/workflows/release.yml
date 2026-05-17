@@ -56,8 +56,36 @@ jobs:
         if: matrix.platform == 'windows-latest'
         uses: humbletim/install-vulkan-sdk@v1.2
         with:
-          version: latest
+          version: 1.4.350.0
           cache: true
+
+      - name: Verify Vulkan SDK env (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          # The install action may not export VULKAN_SDK to GITHUB_ENV; fix it
+          if (-not $env:VULKAN_SDK) {
+            $sdkRoot = "C:\VulkanSDK"
+            $installed = Get-ChildItem $sdkRoot -Directory -ErrorAction SilentlyContinue |
+                         Sort-Object Name -Descending | Select-Object -First 1
+            if ($installed) {
+              $sdkPath = $installed.FullName
+              Write-Host "Detected Vulkan SDK at $sdkPath"
+              echo "VULKAN_SDK=$sdkPath" >> $env:GITHUB_ENV
+              echo "$sdkPath\Bin" >> $env:GITHUB_PATH
+            } else {
+              Write-Error "Vulkan SDK not found under $sdkRoot"
+              exit 1
+            }
+          } else {
+            Write-Host "VULKAN_SDK=$env:VULKAN_SDK"
+          }
+          # Verify key files exist
+          $inc = Join-Path $env:VULKAN_SDK "Include\vulkan\vulkan.h"
+          $lib = Join-Path $env:VULKAN_SDK "Lib\vulkan-1.lib"
+          if (-not (Test-Path $inc)) { Write-Error "Missing $inc"; exit 1 }
+          if (-not (Test-Path $lib)) { Write-Error "Missing $lib"; exit 1 }
+          Write-Host "Vulkan SDK verified OK"
 
       - name: Install protobuf (Linux)
         if: matrix.platform == 'ubuntu-latest'
