@@ -15,6 +15,23 @@ impl Default for DevicePreference {
     }
 }
 
+/// Sélection du GPU à utiliser
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub enum GpuSelection {
+    /// Utiliser automatiquement le premier GPU détecté (défaut)
+    Auto,
+    /// Utiliser un GPU spécifique par son index
+    Specific(i32),
+    /// Répartir le modèle sur tous les GPU disponibles
+    AllGpus,
+}
+
+impl Default for GpuSelection {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct UserProfile {
     pub first_name: Option<String>,
@@ -27,6 +44,9 @@ pub struct UserProfile {
     /// Préférence GPU / CPU — appliquée au prochain démarrage
     #[serde(default)]
     pub device_preference: DevicePreference,
+    /// Sélection du GPU spécifique (Auto, index, ou tous)
+    #[serde(default)]
+    pub gpu_selection: GpuSelection,
     /// Identifiant du modèle sélectionné (ex: "phi-3-mini-q4")
     #[serde(default = "default_model_id")]
     pub selected_model: String,
@@ -125,6 +145,7 @@ impl Default for UserProfile {
             language_level: LanguageLevel::Standard,
             updated_at: 0,
             device_preference: DevicePreference::default(),
+            gpu_selection: GpuSelection::default(),
             selected_model: default_model_id(),
         }
     }

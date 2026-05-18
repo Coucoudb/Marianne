@@ -45,13 +45,30 @@
                             <button class="toggle-option" data-value="Cpu" id="toggle-cpu">CPU</button>
                         </div>
                     </div>
+                    <div class="settings-item settings-item-preference" id="gpu-selection-section" style="display: none;">
+                        <span class="settings-label">GPU utilisé</span>
+                        <select class="settings-select" id="gpu-select">
+                            <option value="Auto">Auto (premier détecté)</option>
+                            <option value="AllGpus">Tous les GPU</option>
+                        </select>
+                    </div>
                     <p class="settings-hint" id="settings-hint">Appliqué au prochain démarrage</p>
 
                     <div class="settings-separator"></div>
-                    <h4 class="settings-subtitle">Gestion du modèle IA</h4>
+                    <h4 class="settings-subtitle">Modèles IA installés</h4>
                     <div class="model-catalog" id="model-catalog">
                         <!-- Rempli dynamiquement par JS -->
                     </div>
+
+                    <div class="settings-separator"></div>
+                    <h4 class="settings-subtitle">Rechercher un modèle sur HuggingFace</h4>
+                    <div class="hf-search-bar">
+                        <input type="text" id="hf-search-input" class="hf-search-input" placeholder="Ex : mistral, llama, phi, gemma..." oninput="onHfSearchInput(event)">
+                    </div>
+                    <div class="model-catalog" id="hf-search-results">
+                        <!-- Résultats de recherche -->
+                    </div>
+
                     <div class="model-actions" id="model-actions" style="display: none;">
                         <div class="model-progress" id="model-progress" style="display: none;">
                             <div class="progress-bar">

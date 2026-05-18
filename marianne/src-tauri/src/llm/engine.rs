@@ -1,11 +1,12 @@
 // src-tauri/src/llm/engine.rs
 // Moteur LLM basé sur llama.cpp via llama-cpp-2
-use crate::profile::DevicePreference;
+use crate::profile::{DevicePreference, GpuSelection};
 use anyhow::{Context, Result};
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
+use llama_cpp_2::model::params::LlamaSplitMode;
 use llama_cpp_2::model::{AddBos, LlamaModel};
 use llama_cpp_2::sampling::LlamaSampler;
 use std::num::NonZeroU32;
@@ -61,6 +62,7 @@ impl LlmEngine {
     pub fn load(
         models_dir: &Path,
         device_preference: &DevicePreference,
+        gpu_selection: &GpuSelection,
         model_filename: &str,
     ) -> Result<Self> {
         let model_path = models_dir.join(model_filename);
@@ -128,7 +130,46 @@ impl LlmEngine {
             }
         };
 
-        let model_params = pin!(LlamaModelParams::default().with_n_gpu_layers(n_gpu_layers));
+        // Configurer main_gpu et split_mode selon la sélection
+        let (main_gpu, split_mode) = if n_gpu_layers > 0 && gpu_devices.len() > 1 {
+            match gpu_selection {
+                GpuSelection::Auto => {
+                    tracing::info!("🎮 GPU Auto — utilisation du GPU principal (index 0)");
+                    (0i32, LlamaSplitMode::None)
+                }
+                GpuSelection::Specific(idx) => {
+                    let idx = *idx;
+                    if (idx as usize) < gpu_devices.len() {
+                        tracing::info!(
+                            "🎮 GPU sélectionné : index {} ({})",
+                            idx,
+                            gpu_devices[idx as usize].description
+                        );
+                    } else {
+                        tracing::warn!(
+                            "⚠️ GPU index {} invalide (max: {}), fallback index 0",
+                            idx,
+                            gpu_devices.len() - 1
+                        );
+                    }
+                    (idx.min((gpu_devices.len() as i32) - 1), LlamaSplitMode::None)
+                }
+                GpuSelection::AllGpus => {
+                    tracing::info!(
+                        "🎮 Multi-GPU activé — répartition sur {} GPU (mode Layer)",
+                        gpu_devices.len()
+                    );
+                    (0i32, LlamaSplitMode::Layer)
+                }
+            }
+        } else {
+            (0i32, LlamaSplitMode::None)
+        };
+
+        let model_params = pin!(LlamaModelParams::default()
+            .with_n_gpu_layers(n_gpu_layers)
+            .with_main_gpu(main_gpu)
+            .with_split_mode(split_mode));
 
         let model = LlamaModel::load_from_file(&backend, &model_path, &model_params)
             .map_err(|e| anyhow::anyhow!("Erreur chargement modèle : {:?}", e))?;

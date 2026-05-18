@@ -89,18 +89,17 @@ impl AppState {
             let dir = self.data_dir.join("models");
             let profile = self.profile.lock().clone();
             let device_preference = profile.device_preference.clone();
+            let gpu_selection = profile.gpu_selection.clone();
             let selected_model = profile.selected_model.clone();
 
-            // Résoudre le nom de fichier
-            let model_filename = match selected_model.as_str() {
-                "phi-3-mini-q4" => "phi-3-mini-q4.gguf",
-                "phi-3.5-mini-q4" => "phi-3.5-mini-q4.gguf",
-                "phi-3-medium-q4" => "phi-3-medium-q4.gguf",
-                _ => "phi-3-mini-q4.gguf",
-            }.to_string();
+            // Résoudre le nom de fichier via le registre
+            let model_filename = crate::commands::setup::resolve_model_filename(
+                &self.data_dir,
+                &selected_model,
+            );
 
             let engine = tokio::task::spawn_blocking(move || {
-                crate::llm::engine::LlmEngine::load(&dir, &device_preference, &model_filename)
+                crate::llm::engine::LlmEngine::load(&dir, &device_preference, &gpu_selection, &model_filename)
             }).await??;
             *self.llm.lock() = Some(engine);
         }

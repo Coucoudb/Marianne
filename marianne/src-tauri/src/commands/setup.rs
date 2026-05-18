@@ -1,10 +1,9 @@
 // src-tauri/src/commands/setup.rs
-use crate::profile::DevicePreference;
+use crate::profile::{DevicePreference, GpuSelection};
 use crate::state::AppState;
 use futures_util::StreamExt;
 use reqwest::Client;
-use sha2::{Sha256, Digest};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom, Write};
 use tauri::{Emitter, State, Window};
 
 #[derive(serde::Serialize, Clone)]
@@ -73,11 +72,7 @@ pub async fn get_device_info(state: State<'_, AppState>) -> Result<DeviceInfo, S
 #[tauri::command]
 pub async fn check_model_status(state: State<'_, AppState>) -> Result<ModelStatus, String> {
     let selected_model = state.profile.lock().selected_model.clone();
-    let catalog = get_model_catalog_list();
-    let model_filename = catalog.iter()
-        .find(|m| m.id == selected_model)
-        .map(|m| m.gguf_filename.clone())
-        .unwrap_or_else(|| "phi-3-mini-q4.gguf".to_string());
+    let model_filename = resolve_model_filename(&state.data_dir, &selected_model);
 
     let model_path = state.data_dir.join("models").join(&model_filename);
     let available_ram_gb = read_available_ram_gb();
@@ -97,7 +92,7 @@ pub async fn check_model_status(state: State<'_, AppState>) -> Result<ModelStatu
     })
 }
 
-/// Télécharger le modèle avec reprise automatique via HTTP Range
+/// Télécharger le modèle par défaut avec reprise automatique via HTTP Range
 #[tauri::command]
 pub async fn download_model(
     window: Window,
@@ -106,118 +101,41 @@ pub async fn download_model(
     let models_dir = state.data_dir.join("models");
     std::fs::create_dir_all(&models_dir).map_err(|e| e.to_string())?;
 
-    let downloads = vec![
-        (
-            "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf",
-            "phi-3-mini-q4.gguf",
-            // SHA256 of the GGUF file from HuggingFace — update when model changes
-            Option::<&str>::None, // TODO: set expected hash once known, e.g. Some("abc123...")
-        ),
-    ];
+    let download_url = format!(
+        "https://huggingface.co/{}/resolve/main/{}",
+        DEFAULT_MODEL_REPO, DEFAULT_MODEL_FILE
+    );
 
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(7200))
         .build()
         .map_err(|e| e.to_string())?;
 
-    for (url, filename, expected_sha256) in &downloads {
-        let file_path = models_dir.join(filename);
+    download_file_with_resume(&client, &window, &download_url, DEFAULT_MODEL_FILE, &models_dir).await?;
 
-        if file_path.exists() {
-            tracing::info!("{} déjà présent, skip", filename);
-            continue;
-        }
+    // Enregistrer dans le registre local
+    let size_mb = models_dir
+        .join(DEFAULT_MODEL_FILE)
+        .metadata()
+        .map(|m| m.len() / 1_048_576)
+        .unwrap_or(0);
 
-        let partial_path = models_dir.join(format!("{}.partial", filename));
-        let already_downloaded = if partial_path.exists() {
-            std::fs::metadata(&partial_path)
-                .map(|m| m.len())
-                .unwrap_or(0)
-        } else {
-            0
-        };
+    let mut installed = load_installed_models(&state.data_dir);
+    installed.retain(|m| m.id != DEFAULT_MODEL_ID);
+    installed.push(InstalledModel {
+        id: DEFAULT_MODEL_ID.to_string(),
+        repo_id: DEFAULT_MODEL_REPO.to_string(),
+        filename: DEFAULT_MODEL_FILE.to_string(),
+        name: "Phi-3 Mini (Q4)".to_string(),
+        size_mb,
+    });
+    save_installed_models(&state.data_dir, &installed)?;
 
-        tracing::info!(
-            "Téléchargement {} — reprise depuis {} Mo",
-            filename,
-            already_downloaded / 1_048_576
-        );
-
-        let mut request = client.get(*url);
-        if already_downloaded > 0 {
-            request = request.header("Range", format!("bytes={}-", already_downloaded));
-        }
-
-        let response = request
-            .send()
-            .await
-            .map_err(|e| format!("Erreur réseau : {}", e))?;
-
-        let total_size = response
-            .content_length()
-            .map(|l| l + already_downloaded)
-            .unwrap_or(0);
-
-        let mut file = if already_downloaded > 0 {
-            let mut f = std::fs::OpenOptions::new()
-                .append(true)
-                .open(&partial_path)
-                .map_err(|e| e.to_string())?;
-            f.seek(SeekFrom::End(0)).map_err(|e| e.to_string())?;
-            f
-        } else {
-            std::fs::File::create(&partial_path).map_err(|e| e.to_string())?
-        };
-
-        let mut downloaded = already_downloaded;
-        let mut stream = response.bytes_stream();
-
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| format!("Erreur download : {}", e))?;
-            file.write_all(&chunk).map_err(|e| e.to_string())?;
-            downloaded += chunk.len() as u64;
-
-            let percent = if total_size > 0 {
-                (downloaded * 100 / total_size) as u32
-            } else {
-                0
-            };
-
-            let _ = window.emit(
-                "download-progress",
-                DownloadProgress {
-                    filename: filename.to_string(),
-                    downloaded_mb: downloaded / 1_048_576,
-                    total_mb: total_size / 1_048_576,
-                    percent,
-                },
-            );
-        }
-
-        std::fs::rename(&partial_path, &file_path).map_err(|e| e.to_string())?;
-
-        // Verify file integrity via SHA256 if expected hash is provided
-        if let Some(expected_hash) = expected_sha256 {
-            let mut hasher = Sha256::new();
-            let mut f = std::fs::File::open(&file_path).map_err(|e| e.to_string())?;
-            let mut buf = vec![0u8; 1_048_576]; // 1MB buffer
-            loop {
-                let n = f.read(&mut buf).map_err(|e| e.to_string())?;
-                if n == 0 { break; }
-                hasher.update(&buf[..n]);
-            }
-            let computed = format!("{:x}", hasher.finalize());
-            if computed != *expected_hash {
-                std::fs::remove_file(&file_path).ok();
-                return Err(format!(
-                    "Vérification d'intégrité échouée pour {}. Hash attendu: {}, obtenu: {}",
-                    filename, expected_hash, computed
-                ));
-            }
-            tracing::info!("✅ {} téléchargé et vérifié (SHA256 OK)", filename);
-        } else {
-            tracing::warn!("⚠️ {} téléchargé sans vérification de hash", filename);
-        }
+    // Sélectionner le modèle par défaut
+    {
+        let mut profile = state.profile.lock();
+        profile.selected_model = DEFAULT_MODEL_ID.to_string();
+        profile.save(&state.data_dir).map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -243,17 +161,14 @@ pub async fn load_model(
     let models_dir = state.data_dir.join("models");
     let profile = state.profile.lock().clone();
     let device_preference = profile.device_preference.clone();
+    let gpu_selection = profile.gpu_selection.clone();
     let selected_model = profile.selected_model.clone();
 
-    // Résoudre le nom de fichier GGUF à partir du catalogue
-    let catalog = get_model_catalog_list();
-    let model_filename = catalog.iter()
-        .find(|m| m.id == selected_model)
-        .map(|m| m.gguf_filename.clone())
-        .unwrap_or_else(|| "phi-3-mini-q4.gguf".to_string());
+    // Résoudre le nom de fichier GGUF à partir du registre
+    let model_filename = resolve_model_filename(&state.data_dir, &selected_model);
 
     let engine = tokio::task::spawn_blocking(move || {
-        crate::llm::engine::LlmEngine::load(&models_dir, &device_preference, &model_filename)
+        crate::llm::engine::LlmEngine::load(&models_dir, &device_preference, &gpu_selection, &model_filename)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -420,99 +335,385 @@ pub struct DevicePreferenceInfo {
     pub gpu_available: bool,
 }
 
-// ─── Catalogue de modèles ──────────────────────────────────────────────────────
+// ─── Gestion multi-GPU ─────────────────────────────────────────────────────────
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
-pub struct ModelInfo {
-    pub id: String,
+#[derive(serde::Serialize, Clone)]
+pub struct GpuDeviceInfo {
+    /// Index du GPU (utilisé pour la sélection)
+    pub index: i32,
+    /// Nom/description du GPU
     pub name: String,
-    pub description: String,
-    pub size_mb: u64,
-    pub gguf_url: String,
-    pub gguf_filename: String,
-    pub tokenizer_url: String,
-    pub context_length: usize,
-    pub parameters: String,
+    /// Type de device (gpu, integrated_gpu, accelerator)
+    pub device_type: String,
+    /// VRAM libre en Mo
+    pub vram_free_mb: u64,
 }
 
-/// Catalogue des modèles disponibles au téléchargement
-fn get_model_catalog_list() -> Vec<ModelInfo> {
-    vec![
-        ModelInfo {
-            id: "phi-3-mini-q4".into(),
-            name: "Phi-3 Mini (Q4)".into(),
-            description: "Modèle léger et rapide, idéal pour la plupart des usages. 3.8B paramètres.".into(),
-            size_mb: 2300,
-            gguf_url: "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf".into(),
-            gguf_filename: "phi-3-mini-q4.gguf".into(),
-            tokenizer_url: "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct/resolve/main/tokenizer.json".into(),
-            context_length: 4096,
-            parameters: "3.8B".into(),
-        },
-        ModelInfo {
-            id: "phi-3.5-mini-q4".into(),
-            name: "Phi-3.5 Mini (Q4)".into(),
-            description: "Version améliorée de Phi-3, meilleure compréhension du français. 3.8B paramètres.".into(),
-            size_mb: 2400,
-            gguf_url: "https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf".into(),
-            gguf_filename: "phi-3.5-mini-q4.gguf".into(),
-            tokenizer_url: "https://huggingface.co/microsoft/Phi-3.5-mini-instruct/resolve/main/tokenizer.json".into(),
-            context_length: 4096,
-            parameters: "3.8B".into(),
-        },
-        ModelInfo {
-            id: "phi-3-medium-q4".into(),
-            name: "Phi-3 Medium (Q4)".into(),
-            description: "Modèle plus puissant, meilleure qualité de réponse. Nécessite plus de RAM/VRAM. 14B paramètres.".into(),
-            size_mb: 8100,
-            gguf_url: "https://huggingface.co/bartowski/Phi-3-medium-4k-instruct-GGUF/resolve/main/Phi-3-medium-4k-instruct-Q4_K_M.gguf".into(),
-            gguf_filename: "phi-3-medium-q4.gguf".into(),
-            tokenizer_url: "https://huggingface.co/microsoft/Phi-3-medium-4k-instruct/resolve/main/tokenizer.json".into(),
-            context_length: 4096,
-            parameters: "14B".into(),
-        },
-    ]
+#[derive(serde::Serialize, Clone)]
+pub struct GpuListInfo {
+    /// Liste des GPU disponibles
+    pub devices: Vec<GpuDeviceInfo>,
+    /// Sélection actuelle de l'utilisateur
+    pub selection: GpuSelection,
 }
 
-/// Retourner la liste des modèles disponibles avec leur statut
+/// Lister tous les GPU disponibles sur la machine
 #[tauri::command]
-pub async fn get_model_catalog(state: State<'_, AppState>) -> Result<Vec<ModelCatalogEntry>, String> {
+pub async fn list_gpu_devices(state: State<'_, AppState>) -> Result<GpuListInfo, String> {
+    let devices: Vec<GpuDeviceInfo> = llama_cpp_2::list_llama_ggml_backend_devices()
+        .into_iter()
+        .enumerate()
+        .filter(|(_, d)| {
+            matches!(
+                d.device_type,
+                llama_cpp_2::LlamaBackendDeviceType::Gpu
+                    | llama_cpp_2::LlamaBackendDeviceType::IntegratedGpu
+                    | llama_cpp_2::LlamaBackendDeviceType::Accelerator
+            )
+        })
+        .map(|(idx, d)| {
+            let device_type = match d.device_type {
+                llama_cpp_2::LlamaBackendDeviceType::Gpu => "gpu",
+                llama_cpp_2::LlamaBackendDeviceType::IntegratedGpu => "integrated_gpu",
+                llama_cpp_2::LlamaBackendDeviceType::Accelerator => "accelerator",
+                _ => "unknown",
+            };
+            GpuDeviceInfo {
+                index: idx as i32,
+                name: d.description.clone(),
+                device_type: device_type.to_string(),
+                vram_free_mb: (d.memory_free / 1_048_576) as u64,
+            }
+        })
+        .collect();
+
+    let selection = state.profile.lock().gpu_selection.clone();
+
+    Ok(GpuListInfo { devices, selection })
+}
+
+/// Sauvegarder la sélection GPU (appliquée au prochain démarrage)
+#[tauri::command]
+pub async fn set_gpu_selection(
+    state: State<'_, AppState>,
+    selection: GpuSelection,
+) -> Result<(), String> {
+    let mut profile = state.profile.lock();
+    profile.gpu_selection = selection;
+    profile.save(&state.data_dir).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ─── Catalogue de modèles — HuggingFace dynamique ──────────────────────────────
+
+/// Modèle par défaut installé lors du premier lancement
+const DEFAULT_MODEL_REPO: &str = "microsoft/Phi-3-mini-4k-instruct-gguf";
+const DEFAULT_MODEL_FILE: &str = "Phi-3-mini-4k-instruct-q4.gguf";
+const DEFAULT_MODEL_ID: &str = "phi-3-mini-q4";
+
+/// Entrée dans le registre local des modèles installés
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct InstalledModel {
+    /// Identifiant unique (slug du repo + filename)
+    pub id: String,
+    /// Repo HuggingFace (ex: "microsoft/Phi-3-mini-4k-instruct-gguf")
+    pub repo_id: String,
+    /// Nom du fichier GGUF sur disque
+    pub filename: String,
+    /// Nom lisible du modèle
+    pub name: String,
+    /// Taille en Mo
+    pub size_mb: u64,
+}
+
+/// Charger le registre des modèles installés
+fn load_installed_models(data_dir: &std::path::Path) -> Vec<InstalledModel> {
+    let path = data_dir.join("models").join("registry.json");
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Sauvegarder le registre des modèles installés
+fn save_installed_models(data_dir: &std::path::Path, models: &[InstalledModel]) -> Result<(), String> {
+    let dir = data_dir.join("models");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("registry.json");
+    std::fs::write(&path, serde_json::to_string_pretty(models).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())
+}
+
+/// Résultat de recherche HuggingFace
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct HfSearchResult {
+    /// Identifiant du repo (ex: "TheBloke/Mistral-7B-Instruct-v0.2-GGUF")
+    pub repo_id: String,
+    /// Nom lisible
+    pub name: String,
+    /// Description courte
+    pub description: String,
+    /// Nombre de téléchargements
+    pub downloads: u64,
+    /// Nombre de likes
+    pub likes: u64,
+    /// Tags du modèle
+    pub tags: Vec<String>,
+}
+
+/// Fichier GGUF disponible dans un repo HuggingFace
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct HfGgufFile {
+    /// Nom du fichier
+    pub filename: String,
+    /// Taille en Mo
+    pub size_mb: u64,
+    /// URL de téléchargement
+    pub download_url: String,
+    /// Indication de quantization extraite du nom (ex: "Q4_K_M", "Q5_K_S")
+    pub quantization: String,
+}
+
+/// Rechercher des modèles GGUF sur HuggingFace
+#[tauri::command]
+pub async fn search_huggingface(query: String) -> Result<Vec<HfSearchResult>, String> {
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    // L'API HuggingFace filtre par tag "gguf" pour ne retourner que des modèles compatibles
+    let url = format!(
+        "https://huggingface.co/api/models?search={}&filter=gguf&sort=downloads&direction=-1&limit=15",
+        urlencoding::encode(&query)
+    );
+
+    let response = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Erreur réseau HuggingFace : {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("HuggingFace API erreur : {}", response.status()));
+    }
+
+    let body: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+
+    let results: Vec<HfSearchResult> = body
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .filter_map(|item| {
+            let repo_id = item.get("modelId")?.as_str()?.to_string();
+            let name = repo_id.split('/').last().unwrap_or(&repo_id).to_string();
+            let description = item
+                .get("pipeline_tag")
+                .and_then(|v| v.as_str())
+                .unwrap_or("text-generation")
+                .to_string();
+            let downloads = item.get("downloads").and_then(|v| v.as_u64()).unwrap_or(0);
+            let likes = item.get("likes").and_then(|v| v.as_u64()).unwrap_or(0);
+            let tags: Vec<String> = item
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            Some(HfSearchResult {
+                repo_id,
+                name,
+                description,
+                downloads,
+                likes,
+                tags,
+            })
+        })
+        .collect();
+
+    Ok(results)
+}
+
+/// Lister les fichiers GGUF disponibles dans un repo HuggingFace
+#[tauri::command]
+pub async fn get_model_gguf_files(repo_id: String) -> Result<Vec<HfGgufFile>, String> {
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let url = format!("https://huggingface.co/api/models/{}/tree/main", repo_id);
+
+    let response = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Erreur réseau : {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Erreur API HuggingFace : {}", response.status()));
+    }
+
+    let body: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+
+    let files: Vec<HfGgufFile> = body
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .filter_map(|item| {
+            let filename = item.get("path")?.as_str()?.to_string();
+            if !filename.to_lowercase().ends_with(".gguf") {
+                return None;
+            }
+            let size_bytes = item.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+            let size_mb = size_bytes / 1_048_576;
+            let download_url = format!(
+                "https://huggingface.co/{}/resolve/main/{}",
+                repo_id, filename
+            );
+
+            // Extraire la quantization du nom de fichier (ex: Q4_K_M, Q5_0, etc.)
+            let quantization = extract_quantization(&filename);
+
+            Some(HfGgufFile {
+                filename,
+                size_mb,
+                download_url,
+                quantization,
+            })
+        })
+        .collect();
+
+    Ok(files)
+}
+
+/// Extraire l'indication de quantization d'un nom de fichier GGUF
+fn extract_quantization(filename: &str) -> String {
+    let upper = filename.to_uppercase();
+    let patterns = [
+        "IQ1_S", "IQ1_M", "IQ2_XXS", "IQ2_XS", "IQ2_S", "IQ2_M",
+        "IQ3_XXS", "IQ3_XS", "IQ3_S", "IQ3_M", "IQ4_XS", "IQ4_NL",
+        "Q2_K_S", "Q2_K", "Q3_K_S", "Q3_K_M", "Q3_K_L", "Q3_K",
+        "Q4_K_S", "Q4_K_M", "Q4_K_L", "Q4_K", "Q4_0", "Q4_1",
+        "Q5_K_S", "Q5_K_M", "Q5_K_L", "Q5_K", "Q5_0", "Q5_1",
+        "Q6_K", "Q6_0", "Q8_0", "Q8_1",
+        "F16", "F32", "BF16",
+    ];
+    for pat in patterns {
+        if upper.contains(pat) {
+            return pat.to_string();
+        }
+    }
+    "?".to_string()
+}
+
+/// Télécharger et installer un modèle GGUF depuis HuggingFace
+#[tauri::command]
+pub async fn download_hf_model(
+    window: Window,
+    state: State<'_, AppState>,
+    repo_id: String,
+    filename: String,
+    name: String,
+) -> Result<(), String> {
+    let models_dir = state.data_dir.join("models");
+    std::fs::create_dir_all(&models_dir).map_err(|e| e.to_string())?;
+
+    let download_url = format!(
+        "https://huggingface.co/{}/resolve/main/{}",
+        repo_id, filename
+    );
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(7200))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    // Télécharger le fichier GGUF
+    download_file_with_resume(&client, &window, &download_url, &filename, &models_dir).await?;
+
+    // Calculer la taille du fichier téléchargé
+    let size_mb = models_dir
+        .join(&filename)
+        .metadata()
+        .map(|m| m.len() / 1_048_576)
+        .unwrap_or(0);
+
+    // Générer un ID unique basé sur le repo et le fichier
+    let model_id = format!(
+        "{}_{}",
+        repo_id.replace('/', "_"),
+        filename.trim_end_matches(".gguf")
+    );
+
+    // Ajouter au registre local
+    let mut installed = load_installed_models(&state.data_dir);
+    // Éviter les doublons
+    installed.retain(|m| m.id != model_id);
+    installed.push(InstalledModel {
+        id: model_id.clone(),
+        repo_id: repo_id.clone(),
+        filename: filename.clone(),
+        name: name.clone(),
+        size_mb,
+    });
+    save_installed_models(&state.data_dir, &installed)?;
+
+    // Sélectionner automatiquement le nouveau modèle
+    {
+        let mut profile = state.profile.lock();
+        profile.selected_model = model_id.clone();
+        profile.save(&state.data_dir).map_err(|e| e.to_string())?;
+    }
+
+    tracing::info!("✅ Modèle {} ({}) téléchargé et sélectionné", name, filename);
+    Ok(())
+}
+
+/// Lister les modèles installés localement
+#[tauri::command]
+pub async fn list_installed_models(state: State<'_, AppState>) -> Result<Vec<InstalledModelEntry>, String> {
+    let installed = load_installed_models(&state.data_dir);
     let models_dir = state.data_dir.join("models");
     let selected = state.profile.lock().selected_model.clone();
-    let catalog = get_model_catalog_list();
 
-    let entries = catalog.into_iter().map(|m| {
-        let is_downloaded = models_dir.join(&m.gguf_filename).exists();
-        let is_active = m.id == selected && is_downloaded;
-        ModelCatalogEntry {
-            info: m,
-            downloaded: is_downloaded,
-            active: is_active,
-        }
-    }).collect();
+    let entries = installed
+        .into_iter()
+        .filter(|m| models_dir.join(&m.filename).exists())
+        .map(|m| {
+            let active = m.id == selected;
+            InstalledModelEntry { model: m, active }
+        })
+        .collect();
 
     Ok(entries)
 }
 
 #[derive(serde::Serialize, Clone)]
-pub struct ModelCatalogEntry {
-    pub info: ModelInfo,
-    pub downloaded: bool,
+pub struct InstalledModelEntry {
+    pub model: InstalledModel,
     pub active: bool,
 }
 
-/// Supprimer le modèle actuellement chargé (libère l'espace disque)
+/// Supprimer un modèle installé
 #[tauri::command]
 pub async fn delete_model(
     state: State<'_, AppState>,
     model_id: String,
 ) -> Result<(), String> {
-    let catalog = get_model_catalog_list();
-    let model = catalog.iter().find(|m| m.id == model_id)
-        .ok_or_else(|| "Modèle inconnu".to_string())?;
-
     let models_dir = state.data_dir.join("models");
-    let gguf_path = models_dir.join(&model.gguf_filename);
+    let mut installed = load_installed_models(&state.data_dir);
+
+    let model = installed.iter().find(|m| m.id == model_id).cloned();
+    let Some(model) = model else {
+        return Err("Modèle inconnu".to_string());
+    };
 
     // Si c'est le modèle actif, décharger d'abord
     let selected = state.profile.lock().selected_model.clone();
@@ -522,80 +723,39 @@ pub async fn delete_model(
     }
 
     // Supprimer le fichier GGUF
+    let gguf_path = models_dir.join(&model.filename);
     if gguf_path.exists() {
         std::fs::remove_file(&gguf_path)
             .map_err(|e| format!("Impossible de supprimer le modèle : {}", e))?;
-        tracing::info!("✅ Modèle {} supprimé ({:?})", model_id, gguf_path);
     }
 
     // Supprimer le fichier partiel s'il existe
-    let partial = models_dir.join(format!("{}.partial", model.gguf_filename));
+    let partial = models_dir.join(format!("{}.partial", model.filename));
     if partial.exists() {
         let _ = std::fs::remove_file(&partial);
     }
 
+    // Retirer du registre
+    installed.retain(|m| m.id != model_id);
+    save_installed_models(&state.data_dir, &installed)?;
+
+    tracing::info!("✅ Modèle {} supprimé", model_id);
     Ok(())
 }
 
-/// Télécharger un modèle spécifique du catalogue
-#[tauri::command]
-pub async fn download_selected_model(
-    window: Window,
-    state: State<'_, AppState>,
-    model_id: String,
-) -> Result<(), String> {
-    let catalog = get_model_catalog_list();
-    let model = catalog.into_iter().find(|m| m.id == model_id)
-        .ok_or_else(|| "Modèle inconnu".to_string())?;
-
-    let models_dir = state.data_dir.join("models");
-    std::fs::create_dir_all(&models_dir).map_err(|e| e.to_string())?;
-
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(7200))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    // Télécharger le GGUF
-    download_file_with_resume(
-        &client, &window, &model.gguf_url, &model.gguf_filename, &models_dir
-    ).await?;
-
-    // Télécharger le tokenizer (partagé ou spécifique)
-    let tokenizer_filename = format!("tokenizer_{}.json", model.id);
-    let tokenizer_path = models_dir.join(&tokenizer_filename);
-    let generic_tokenizer = models_dir.join("tokenizer.json");
-
-    // Si pas encore de tokenizer pour ce modèle, le télécharger
-    if !tokenizer_path.exists() && !generic_tokenizer.exists() {
-        download_file_with_resume(
-            &client, &window, &model.tokenizer_url, "tokenizer.json", &models_dir
-        ).await?;
-    }
-
-    // Sauvegarder le modèle sélectionné dans le profil
-    {
-        let mut profile = state.profile.lock();
-        profile.selected_model = model.id.clone();
-        profile.save(&state.data_dir).map_err(|e| e.to_string())?;
-    }
-
-    tracing::info!("✅ Modèle {} téléchargé et sélectionné", model.id);
-    Ok(())
-}
-
-/// Sélectionner un modèle déjà téléchargé (sans re-télécharger)
+/// Sélectionner un modèle déjà installé comme modèle actif
 #[tauri::command]
 pub async fn select_model(
     state: State<'_, AppState>,
     model_id: String,
 ) -> Result<(), String> {
-    let catalog = get_model_catalog_list();
-    let model = catalog.iter().find(|m| m.id == model_id)
+    let installed = load_installed_models(&state.data_dir);
+    let models_dir = state.data_dir.join("models");
+
+    let model = installed.iter().find(|m| m.id == model_id)
         .ok_or_else(|| "Modèle inconnu".to_string())?;
 
-    let models_dir = state.data_dir.join("models");
-    if !models_dir.join(&model.gguf_filename).exists() {
+    if !models_dir.join(&model.filename).exists() {
         return Err("Ce modèle n'est pas téléchargé".to_string());
     }
 
@@ -611,6 +771,24 @@ pub async fn select_model(
 
     tracing::info!("Modèle {} sélectionné (redémarrage nécessaire)", model_id);
     Ok(())
+}
+
+/// Résoudre le nom de fichier GGUF du modèle sélectionné
+pub fn resolve_model_filename(data_dir: &std::path::Path, selected_model: &str) -> String {
+    let installed = load_installed_models(data_dir);
+    installed
+        .iter()
+        .find(|m| m.id == selected_model)
+        .map(|m| m.filename.clone())
+        .unwrap_or_else(|| {
+            // Fallback : ancien format de catalogue
+            match selected_model {
+                "phi-3-mini-q4" => "Phi-3-mini-4k-instruct-q4.gguf".to_string(),
+                "phi-3.5-mini-q4" => "Phi-3.5-mini-instruct-Q4_K_M.gguf".to_string(),
+                "phi-3-medium-q4" => "Phi-3-medium-4k-instruct-Q4_K_M.gguf".to_string(),
+                _ => format!("{}.gguf", selected_model),
+            }
+        })
 }
 
 /// Télécharger un fichier avec reprise HTTP Range

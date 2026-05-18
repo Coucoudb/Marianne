@@ -56,6 +56,8 @@ const elements = {
     settingsModel: document.getElementById('settings-model'),
     toggleGpu: document.getElementById('toggle-gpu'),
     toggleCpu: document.getElementById('toggle-cpu'),
+    gpuSelect: document.getElementById('gpu-select'),
+    gpuSelectionSection: document.getElementById('gpu-selection-section'),
     settingsHint: document.getElementById('settings-hint'),
 };
 
@@ -104,6 +106,11 @@ function setupEventListeners() {
     });
     elements.toggleCpu.addEventListener('click', () => {
         setDevicePreference('Cpu');
+    });
+
+    // Sélection GPU spécifique
+    elements.gpuSelect.addEventListener('change', () => {
+        setGpuSelection(elements.gpuSelect.value);
     });
 
     // Drag & drop sur la zone de messages
@@ -438,7 +445,7 @@ function toggleSettings() {
         elements.settingsPanel.style.display = 'block';
         elements.settingsBtn.classList.add('active');
         loadDevicePreference();
-        loadModelCatalog();
+        loadInstalledModels();
     }
 }
 
@@ -451,10 +458,10 @@ async function updateDeviceBadge() {
     try {
         const info = await invoke('get_device_info');
         elements.settingsDevice.textContent = info.label;
-        // Afficher le nom du modèle actif depuis le catalogue
-        const catalog = await invoke('get_model_catalog');
-        const active = catalog.find(e => e.active);
-        elements.settingsModel.textContent = active ? active.info.name : 'Aucun';
+        // Afficher le nom du modèle actif depuis le registre
+        const installed = await invoke('list_installed_models');
+        const active = installed.find(e => e.active);
+        elements.settingsModel.textContent = active ? active.model.name : 'Aucun';
     } catch (_) {
         elements.settingsDevice.textContent = '—';
         elements.settingsModel.textContent = '—';
@@ -473,11 +480,81 @@ async function loadDevicePreference() {
         elements.toggleGpu.disabled = !pref.gpu_available;
         if (!pref.gpu_available) {
             elements.settingsHint.textContent = 'GPU non détecté sur cette machine';
+            elements.gpuSelectionSection.style.display = 'none';
         } else {
             elements.settingsHint.textContent = 'Appliqué au prochain démarrage';
+            // Charger la liste des GPU si mode GPU actif
+            if (pref.preference === 'Gpu') {
+                await loadGpuDevices();
+            }
         }
     } catch (_) {
         // Silencieux
+    }
+}
+
+async function loadGpuDevices() {
+    try {
+        const gpuInfo = await invoke('list_gpu_devices');
+        const select = elements.gpuSelect;
+
+        // Ne montrer la section que s'il y a plusieurs GPU
+        if (gpuInfo.devices.length > 1) {
+            elements.gpuSelectionSection.style.display = '';
+
+            // Reconstruire les options
+            select.innerHTML = '';
+            const autoOpt = document.createElement('option');
+            autoOpt.value = 'Auto';
+            autoOpt.textContent = 'Auto (premier détecté)';
+            select.appendChild(autoOpt);
+
+            const allOpt = document.createElement('option');
+            allOpt.value = 'AllGpus';
+            allOpt.textContent = `Tous les GPU (${gpuInfo.devices.length})`;
+            select.appendChild(allOpt);
+
+            for (const dev of gpuInfo.devices) {
+                const opt = document.createElement('option');
+                opt.value = `Specific:${dev.index}`;
+                opt.textContent = `${dev.name} (${dev.vram_free_mb} Mo VRAM)`;
+                select.appendChild(opt);
+            }
+
+            // Sélectionner la valeur actuelle
+            if (gpuInfo.selection === 'Auto') {
+                select.value = 'Auto';
+            } else if (gpuInfo.selection === 'AllGpus') {
+                select.value = 'AllGpus';
+            } else if (gpuInfo.selection && gpuInfo.selection.Specific !== undefined) {
+                select.value = `Specific:${gpuInfo.selection.Specific}`;
+            }
+        } else {
+            elements.gpuSelectionSection.style.display = 'none';
+        }
+    } catch (e) {
+        console.warn('Erreur chargement GPU:', e);
+        elements.gpuSelectionSection.style.display = 'none';
+    }
+}
+
+async function setGpuSelection(value) {
+    try {
+        let selection;
+        if (value === 'Auto') {
+            selection = 'Auto';
+        } else if (value === 'AllGpus') {
+            selection = 'AllGpus';
+        } else if (value.startsWith('Specific:')) {
+            const idx = parseInt(value.split(':')[1], 10);
+            selection = { Specific: idx };
+        } else {
+            return;
+        }
+        await invoke('set_gpu_selection', { selection });
+        elements.settingsHint.textContent = '✓ Appliqué au prochain démarrage';
+    } catch (e) {
+        console.warn('Erreur sauvegarde sélection GPU:', e);
     }
 }
 
@@ -487,87 +564,220 @@ async function setDevicePreference(preference) {
         elements.toggleGpu.classList.toggle('active', preference === 'Gpu');
         elements.toggleCpu.classList.toggle('active', preference === 'Cpu');
         elements.settingsHint.textContent = '✓ Appliqué au prochain démarrage';
+
+        // Montrer/masquer la sélection GPU selon le mode
+        if (preference === 'Gpu') {
+            await loadGpuDevices();
+        } else {
+            elements.gpuSelectionSection.style.display = 'none';
+        }
     } catch (e) {
         console.warn('Erreur sauvegarde préférence device:', e);
     }
 }
 
-// ─── Gestion des modèles ───────────────────────────────────────────────────────
+// ─── Gestion des modèles — HuggingFace ─────────────────────────────────────────
 let modelDownloading = false;
+let searchTimeout = null;
 
-async function loadModelCatalog() {
+async function loadInstalledModels() {
     const container = document.getElementById('model-catalog');
     if (!container) return;
 
     try {
-        const catalog = await invoke('get_model_catalog');
+        const installed = await invoke('list_installed_models');
         container.innerHTML = '';
 
-        for (const entry of catalog) {
+        if (installed.length === 0) {
+            container.innerHTML = '<p class="settings-hint">Aucun modèle installé</p>';
+            return;
+        }
+
+        for (const entry of installed) {
             const card = document.createElement('div');
             card.className = `model-card${entry.active ? ' active' : ''}`;
 
-            let badgeClass = 'not-downloaded';
-            let badgeText = `${entry.info.size_mb} Mo`;
-            if (entry.active) {
-                badgeClass = 'active';
-                badgeText = 'Actif';
-            } else if (entry.downloaded) {
-                badgeClass = 'downloaded';
-                badgeText = 'Téléchargé';
-            }
+            const badgeClass = entry.active ? 'active' : 'downloaded';
+            const badgeText = entry.active ? 'Actif' : `${entry.model.size_mb} Mo`;
 
             card.innerHTML = `
                 <div class="model-card-header">
-                    <span class="model-card-name">${entry.info.name}</span>
+                    <span class="model-card-name">${escapeHtml(entry.model.name)}</span>
                     <span class="model-card-badge ${badgeClass}">${badgeText}</span>
                 </div>
-                <div class="model-card-desc">${entry.info.description}</div>
                 <div class="model-card-meta">
-                    <span>${entry.info.parameters}</span>
-                    <span>•</span>
-                    <span>Contexte : ${entry.info.context_length} tokens</span>
+                    <span>${escapeHtml(entry.model.repo_id)}</span>
                 </div>
                 <div class="model-card-actions"></div>
             `;
 
             const actionsDiv = card.querySelector('.model-card-actions');
 
-            if (entry.active) {
-                const delBtn = document.createElement('button');
-                delBtn.className = 'model-btn danger';
-                delBtn.textContent = 'Supprimer';
-                delBtn.addEventListener('click', () => deleteCatalogModel(entry.info.id));
-                actionsDiv.appendChild(delBtn);
-            } else if (entry.downloaded) {
+            if (!entry.active) {
                 const activateBtn = document.createElement('button');
                 activateBtn.className = 'model-btn primary';
                 activateBtn.textContent = 'Activer';
-                activateBtn.addEventListener('click', () => selectCatalogModel(entry.info.id));
+                activateBtn.addEventListener('click', () => activateInstalledModel(entry.model.id));
                 actionsDiv.appendChild(activateBtn);
-
-                const delBtn = document.createElement('button');
-                delBtn.className = 'model-btn danger';
-                delBtn.textContent = 'Supprimer';
-                delBtn.addEventListener('click', () => deleteCatalogModel(entry.info.id));
-                actionsDiv.appendChild(delBtn);
-            } else {
-                const dlBtn = document.createElement('button');
-                dlBtn.className = 'model-btn primary';
-                dlBtn.textContent = 'Télécharger';
-                dlBtn.addEventListener('click', () => downloadCatalogModel(entry.info.id));
-                actionsDiv.appendChild(dlBtn);
             }
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'model-btn danger';
+            delBtn.textContent = 'Supprimer';
+            delBtn.addEventListener('click', () => deleteInstalledModel(entry.model.id));
+            actionsDiv.appendChild(delBtn);
 
             container.appendChild(card);
         }
     } catch (e) {
-        container.innerHTML = '<p class="settings-hint">Impossible de charger le catalogue</p>';
-        console.warn('Erreur chargement catalogue:', e);
+        container.innerHTML = '<p class="settings-hint">Impossible de charger les modèles</p>';
+        console.warn('Erreur chargement modèles:', e);
     }
 }
 
-async function downloadCatalogModel(modelId) {
+async function activateInstalledModel(modelId) {
+    try {
+        await invoke('select_model', { modelId });
+        loadInstalledModels();
+        updateDeviceBadge();
+        const hint = document.getElementById('settings-hint');
+        if (hint) hint.textContent = '⚠ Redémarrez pour charger le nouveau modèle';
+    } catch (e) {
+        alert('Erreur : ' + e);
+    }
+}
+
+async function deleteInstalledModel(modelId) {
+    if (!confirm('Supprimer ce modèle ? Vous devrez le retélécharger pour l\'utiliser à nouveau.')) {
+        return;
+    }
+    try {
+        await invoke('delete_model', { modelId });
+        loadInstalledModels();
+        updateDeviceBadge();
+    } catch (e) {
+        alert('Erreur lors de la suppression : ' + e);
+    }
+}
+
+// ─── Recherche HuggingFace ─────────────────────────────────────────────────────
+function onHfSearchInput(e) {
+    const query = e.target.value.trim();
+    clearTimeout(searchTimeout);
+    if (query.length < 2) {
+        document.getElementById('hf-search-results').innerHTML = '';
+        return;
+    }
+    // Debounce 500ms
+    searchTimeout = setTimeout(() => searchHuggingFace(query), 500);
+}
+
+async function searchHuggingFace(query) {
+    const resultsContainer = document.getElementById('hf-search-results');
+    resultsContainer.innerHTML = '<p class="settings-hint">Recherche en cours...</p>';
+
+    try {
+        const results = await invoke('search_huggingface', { query });
+        resultsContainer.innerHTML = '';
+
+        if (results.length === 0) {
+            resultsContainer.innerHTML = '<p class="settings-hint">Aucun modèle GGUF trouvé</p>';
+            return;
+        }
+
+        for (const result of results) {
+            const card = document.createElement('div');
+            card.className = 'model-card hf-result';
+
+            const downloadsFormatted = formatNumber(result.downloads);
+            const likesFormatted = formatNumber(result.likes);
+
+            card.innerHTML = `
+                <div class="model-card-header">
+                    <span class="model-card-name">${escapeHtml(result.name)}</span>
+                    <span class="model-card-badge not-downloaded">⬇ ${downloadsFormatted}</span>
+                </div>
+                <div class="model-card-desc">${escapeHtml(result.repo_id)}</div>
+                <div class="model-card-meta">
+                    <span>❤️ ${likesFormatted}</span>
+                    <span>•</span>
+                    <span>${escapeHtml(result.description)}</span>
+                </div>
+                <div class="model-card-actions">
+                    <button class="model-btn primary">Voir les fichiers</button>
+                </div>
+            `;
+
+            card.querySelector('.model-btn').addEventListener('click', () => {
+                showGgufFiles(result.repo_id, result.name);
+            });
+
+            resultsContainer.appendChild(card);
+        }
+    } catch (e) {
+        resultsContainer.innerHTML = `<p class="settings-hint">Erreur : ${e}</p>`;
+    }
+}
+
+async function showGgufFiles(repoId, modelName) {
+    const resultsContainer = document.getElementById('hf-search-results');
+    resultsContainer.innerHTML = '<p class="settings-hint">Chargement des fichiers GGUF...</p>';
+
+    try {
+        const files = await invoke('get_model_gguf_files', { repoId });
+        resultsContainer.innerHTML = '';
+
+        if (files.length === 0) {
+            resultsContainer.innerHTML = '<p class="settings-hint">Aucun fichier GGUF trouvé dans ce repo</p>';
+            return;
+        }
+
+        // Bouton retour
+        const backBtn = document.createElement('button');
+        backBtn.className = 'model-btn';
+        backBtn.textContent = '← Retour aux résultats';
+        backBtn.style.marginBottom = '8px';
+        backBtn.addEventListener('click', () => {
+            const input = document.getElementById('hf-search-input');
+            if (input && input.value.trim()) searchHuggingFace(input.value.trim());
+        });
+        resultsContainer.appendChild(backBtn);
+
+        // Titre
+        const title = document.createElement('p');
+        title.className = 'settings-hint';
+        title.style.fontWeight = '600';
+        title.style.color = 'var(--text-primary)';
+        title.textContent = `${modelName} — ${files.length} fichier(s) GGUF`;
+        resultsContainer.appendChild(title);
+
+        for (const file of files) {
+            const card = document.createElement('div');
+            card.className = 'model-card';
+
+            card.innerHTML = `
+                <div class="model-card-header">
+                    <span class="model-card-name">${escapeHtml(file.quantization)}</span>
+                    <span class="model-card-badge not-downloaded">${file.size_mb} Mo</span>
+                </div>
+                <div class="model-card-desc">${escapeHtml(file.filename)}</div>
+                <div class="model-card-actions">
+                    <button class="model-btn primary">Installer</button>
+                </div>
+            `;
+
+            card.querySelector('.model-btn').addEventListener('click', () => {
+                installHfModel(repoId, file.filename, `${modelName} (${file.quantization})`);
+            });
+
+            resultsContainer.appendChild(card);
+        }
+    } catch (e) {
+        resultsContainer.innerHTML = `<p class="settings-hint">Erreur : ${e}</p>`;
+    }
+}
+
+async function installHfModel(repoId, filename, name) {
     if (modelDownloading) return;
     modelDownloading = true;
 
@@ -578,48 +788,39 @@ async function downloadCatalogModel(modelId) {
 
     if (progressEl) progressEl.style.display = 'flex';
     if (actionsEl) actionsEl.style.display = 'block';
+    if (progressFill) progressFill.style.width = '0%';
+    if (progressText) progressText.textContent = 'Démarrage...';
 
     try {
-        await invoke('download_selected_model', { modelId });
-        if (progressText) progressText.textContent = '✓ Terminé';
-        // Recharger le catalogue
+        await invoke('download_hf_model', { repoId, filename, name });
+        if (progressText) progressText.textContent = '✓ Installé !';
         setTimeout(() => {
             if (progressEl) progressEl.style.display = 'none';
             if (actionsEl) actionsEl.style.display = 'none';
-            loadModelCatalog();
+            loadInstalledModels();
+            updateDeviceBadge();
+            // Vider les résultats de recherche
+            document.getElementById('hf-search-results').innerHTML = '';
+            document.getElementById('hf-search-input').value = '';
         }, 1500);
     } catch (e) {
-        if (progressText) progressText.textContent = 'Erreur';
-        console.error('Erreur téléchargement modèle:', e);
+        if (progressText) progressText.textContent = `Erreur : ${e}`;
+        console.error('Erreur installation modèle:', e);
     } finally {
         modelDownloading = false;
     }
 }
 
-async function deleteCatalogModel(modelId) {
-    if (!confirm('Supprimer ce modèle ? Vous devrez le retélécharger pour l\'utiliser à nouveau.')) {
-        return;
-    }
-
-    try {
-        await invoke('delete_model', { modelId });
-        loadModelCatalog();
-        updateDeviceBadge();
-    } catch (e) {
-        alert('Erreur lors de la suppression : ' + e);
-    }
+function formatNumber(n) {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+    if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
+    return n.toString();
 }
 
-async function selectCatalogModel(modelId) {
-    try {
-        await invoke('select_model', { modelId });
-        loadModelCatalog();
-        updateDeviceBadge();
-        const hint = document.getElementById('settings-hint');
-        if (hint) hint.textContent = '⚠ Redémarrez pour charger le nouveau modèle';
-    } catch (e) {
-        alert('Erreur : ' + e);
-    }
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // ─── Documents : upload et drag & drop ─────────────────────────────────────────

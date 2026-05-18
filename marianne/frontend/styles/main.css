@@ -337,6 +337,18 @@ body {
     margin-top: 2px;
 }
 
+.settings-select {
+    width: 100%;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--bg-chat);
+    color: var(--text-primary);
+    cursor: pointer;
+    margin-top: 4px;
+}
+
 .settings-subtitle {
     font-size: 0.8rem;
     font-weight: 600;
@@ -492,6 +504,41 @@ body {
     font-size: 0.65rem;
     color: var(--text-secondary);
     min-width: 35px;
+}
+
+/* ─── HF SEARCH ─────────────────────────────────────────── */
+.hf-search-bar {
+    margin-bottom: 8px;
+}
+
+.hf-search-input {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--bg-chat);
+    color: var(--text-primary);
+    box-sizing: border-box;
+}
+
+.hf-search-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(0, 0, 145, 0.1);
+}
+
+.hf-search-input::placeholder {
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+
+#hf-search-results {
+    max-height: 300px;
+}
+
+.hf-result {
+    cursor: pointer;
 }
 
 /* ─── CHAT CONTAINER ────────────────────────────────────── */
