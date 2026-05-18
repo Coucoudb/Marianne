@@ -1,6 +1,6 @@
 [package]
 name = "marianne"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 rust-version = "1.75"
 description = "Marianne — Assistant Administratif Français 100% Local"

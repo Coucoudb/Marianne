@@ -41,6 +41,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set version from tag
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_name }}" =~ ^v(.+)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+          else
+            VERSION="0.0.0"
+          fi
+          echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Version from tag: $VERSION"
+          # Update tauri.conf.json (cross-platform sed)
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" marianne/src-tauri/tauri.conf.json
+            sed -i '' "1,/^version = \".*\"/{s/^version = \".*\"/version = \"$VERSION\"/;}" marianne/src-tauri/Cargo.toml
+          else
+            sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" marianne/src-tauri/tauri.conf.json
+            sed -i "0,/^version = \".*\"/s//version = \"$VERSION\"/" marianne/src-tauri/Cargo.toml
+          fi
+          # Verify
+          grep '"version"' marianne/src-tauri/tauri.conf.json
+          grep '^version' marianne/src-tauri/Cargo.toml | head -1
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:

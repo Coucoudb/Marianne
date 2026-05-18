@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedoc/schema/master/tauri.schema.json",
   "productName": "Marianne AI",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "identifier": "fr.marianne.app",
   "build": {
     "frontendDist": "../frontend"

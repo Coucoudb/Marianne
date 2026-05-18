@@ -278,13 +278,33 @@ async function checkModelStatus() {
             setStatus('loading', 'Modèle non installé');
         } else if (!status.model_loaded) {
             setStatus('loading', 'Chargement du modèle...');
-            await invoke('load_model');
-            setStatus('loading', 'Initialisation du RAG...');
-            await invoke('initialize_rag').catch(e => console.warn('RAG init:', e));
-            state.isModelLoaded = true;
-            setStatus('ready', 'Marianne est prête');
-            await updateDeviceBadge();
-            checkCorpusUpdate();
+            try {
+                await invoke('load_model');
+                setStatus('loading', 'Initialisation du RAG...');
+                await invoke('initialize_rag').catch(e => console.warn('RAG init:', e));
+                state.isModelLoaded = true;
+                setStatus('ready', 'Marianne est prête');
+                await updateDeviceBadge();
+                checkCorpusUpdate();
+            } catch (loadError) {
+                console.error('Erreur chargement modèle:', loadError);
+                // Le modèle est téléchargé mais le chargement a échoué (GPU, mémoire, etc.)
+                // Retenter en mode CPU automatiquement
+                setStatus('loading', 'Erreur GPU — tentative en mode CPU...');
+                try {
+                    await invoke('set_device_preference', { preference: 'Cpu' });
+                    await invoke('load_model');
+                    setStatus('loading', 'Initialisation du RAG...');
+                    await invoke('initialize_rag').catch(e => console.warn('RAG init:', e));
+                    state.isModelLoaded = true;
+                    setStatus('ready', 'Marianne est prête (mode CPU)');
+                    await updateDeviceBadge();
+                    checkCorpusUpdate();
+                } catch (cpuError) {
+                    console.error('Erreur chargement CPU:', cpuError);
+                    setStatus('error', `Impossible de charger le modèle : ${cpuError}`);
+                }
+            }
         } else {
             state.isModelLoaded = true;
             setStatus('ready', 'Marianne est prête');
@@ -292,7 +312,7 @@ async function checkModelStatus() {
         }
     } catch (error) {
         console.error('Erreur init:', error);
-        // En cas d'erreur, proposer le téléchargement
+        // En cas d'erreur de check_model_status lui-même, proposer le téléchargement
         elements.setupModal.style.display = 'flex';
         setStatus('error', `Erreur : ${error}`);
     }
@@ -306,7 +326,14 @@ async function downloadModel() {
     try {
         await invoke('download_model');
         setStatus('loading', 'Chargement du modèle...');
-        await invoke('load_model');
+        try {
+            await invoke('load_model');
+        } catch (loadError) {
+            console.warn('Erreur GPU, tentative CPU:', loadError);
+            setStatus('loading', 'Erreur GPU — tentative en mode CPU...');
+            await invoke('set_device_preference', { preference: 'Cpu' });
+            await invoke('load_model');
+        }
         setStatus('loading', 'Initialisation du RAG...');
         await invoke('initialize_rag').catch(e => console.warn('RAG init:', e));
         state.isModelLoaded = true;

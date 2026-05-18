@@ -362,8 +362,7 @@ pub struct GpuListInfo {
 pub async fn list_gpu_devices(state: State<'_, AppState>) -> Result<GpuListInfo, String> {
     let devices: Vec<GpuDeviceInfo> = llama_cpp_2::list_llama_ggml_backend_devices()
         .into_iter()
-        .enumerate()
-        .filter(|(_, d)| {
+        .filter(|d| {
             matches!(
                 d.device_type,
                 llama_cpp_2::LlamaBackendDeviceType::Gpu
@@ -371,6 +370,7 @@ pub async fn list_gpu_devices(state: State<'_, AppState>) -> Result<GpuListInfo,
                     | llama_cpp_2::LlamaBackendDeviceType::Accelerator
             )
         })
+        .enumerate()
         .map(|(idx, d)| {
             let device_type = match d.device_type {
                 llama_cpp_2::LlamaBackendDeviceType::Gpu => "gpu",
