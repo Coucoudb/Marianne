@@ -1,5 +1,5 @@
 // src-tauri/src/commands/corpus.rs
-use crate::corpus::updater::{CorpusUpdater, UpdateReport, needs_update, save_last_update_timestamp};
+use crate::corpus::updater::{CorpusUpdater, needs_update, save_last_update_timestamp};
 use crate::state::AppState;
 use tauri::{Emitter, State, Window};
 

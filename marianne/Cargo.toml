@@ -1,3 +1,16 @@
 [workspace]
-members = ["src-tauri"]
+members = ["marianne-core", "src-tauri", "marianne-server"]
 resolver = "2"
+
+[workspace.dependencies]
+marianne-core = { path = "marianne-core" }
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.release.package.llama-cpp-2]
+opt-level = 3
