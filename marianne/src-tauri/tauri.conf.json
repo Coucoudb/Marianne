@@ -4,7 +4,10 @@
   "version": "0.0.2",
   "identifier": "fr.marianne.app",
   "build": {
-    "frontendDist": "../frontend"
+    "frontendDist": "../marianne-web/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "cd ../marianne-web && npm run dev",
+    "beforeBuildCommand": "cd ../marianne-web && npm run build"
   },
   "app": {
     "withGlobalTauri": true,

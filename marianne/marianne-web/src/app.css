@@ -21,7 +21,7 @@
     --warning: #e07b00;
     --error: var(--rouge-marianne);
 
-    /* Ombres chaleureuses */
+    /* Ombres */
     --shadow-sm: 0 1px 3px rgba(30, 30, 30, 0.06);
     --shadow-md: 0 4px 12px rgba(30, 30, 30, 0.08);
     --shadow-lg: 0 8px 24px rgba(30, 30, 30, 0.1);
@@ -38,7 +38,7 @@
     --spacing-lg: 1.5rem;
     --spacing-xl: 2rem;
 
-    /* Radius — arrondi doux inspiré du béret */
+    /* Radius */
     --radius-sm: 6px;
     --radius-md: 12px;
     --radius-lg: 20px;
@@ -68,7 +68,7 @@ body {
     height: 100vh;
 }
 
-/* ─── HEADER ────────────────────────────────────────────── */
+/* ─── HEADER ─────────────────────────────────────────────── */
 .app-header {
     display: flex;
     align-items: center;
@@ -81,7 +81,6 @@ body {
     z-index: 10;
 }
 
-/* Barre tricolore en haut */
 .app-header::before {
     content: '';
     position: absolute;
@@ -136,43 +135,6 @@ body {
     display: flex;
     align-items: center;
     gap: var(--spacing-md);
-}
-
-.device-badge {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    font-size: 0.72rem;
-    font-weight: 600;
-    padding: 4px 12px;
-    border-radius: var(--radius-full);
-    background: var(--bg-chat);
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.device-badge.cuda {
-    background: #e8f5e9;
-    border-color: #66bb6a;
-    color: #2e7d32;
-}
-
-.device-badge.metal {
-    background: #e3f2fd;
-    border-color: #42a5f5;
-    color: #1565c0;
-}
-
-.device-badge.cpu {
-    background: #fff3e0;
-    border-color: #ffa726;
-    color: #e65100;
-}
-
-.device-icon {
-    font-size: 0.85rem;
 }
 
 .header-status {
@@ -342,7 +304,7 @@ body {
     padding: 6px 10px;
     font-size: 0.75rem;
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm, 4px);
+    border-radius: var(--radius-sm);
     background: var(--bg-chat);
     color: var(--text-primary);
     cursor: pointer;
@@ -516,7 +478,7 @@ body {
     padding: 8px 12px;
     font-size: 0.75rem;
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm, 4px);
+    border-radius: var(--radius-sm);
     background: var(--bg-chat);
     color: var(--text-primary);
     box-sizing: border-box;
@@ -531,14 +493,6 @@ body {
 .hf-search-input::placeholder {
     color: var(--text-secondary);
     opacity: 0.7;
-}
-
-#hf-search-results {
-    max-height: 300px;
-}
-
-.hf-result {
-    cursor: pointer;
 }
 
 /* ─── CHAT CONTAINER ────────────────────────────────────── */
@@ -585,7 +539,6 @@ body {
     position: relative;
 }
 
-/* Petit béret rouge */
 .welcome-avatar::after {
     content: '';
     position: absolute;
@@ -647,6 +600,7 @@ body {
     color: var(--blanc);
     border-bottom-right-radius: var(--radius-sm);
     box-shadow: 0 2px 8px rgba(0, 0, 145, 0.2);
+    white-space: pre-wrap;
 }
 
 .message.assistant {
@@ -658,7 +612,6 @@ body {
     padding-left: calc(var(--spacing-lg) + 40px);
 }
 
-/* Avatar Marianne dans les bulles assistant */
 .message.assistant::before {
     content: 'M';
     position: absolute;
@@ -705,11 +658,6 @@ body {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
 }
 
 @keyframes fadeIn {
@@ -793,10 +741,6 @@ body {
     gap: 3px;
 }
 
-.stat-icon {
-    font-size: 0.7rem;
-}
-
 .sources-list {
     margin-bottom: var(--spacing-sm);
 }
@@ -871,7 +815,6 @@ body {
     font-weight: 500;
 }
 
-/* Badge de contradiction web/corpus */
 .contradiction-badge {
     margin-top: var(--spacing-sm);
     margin-bottom: var(--spacing-xs);
@@ -887,7 +830,7 @@ body {
     font-weight: 500;
 }
 
-/* Toast notification pour mise à jour corpus */
+/* Toast corpus update */
 .corpus-toast {
     position: fixed;
     bottom: 24px;
@@ -902,11 +845,6 @@ body {
     box-shadow: var(--shadow-lg);
     z-index: 9999;
     animation: slideUp 0.3s ease;
-}
-
-.corpus-toast.fade-out {
-    opacity: 0;
-    transition: opacity 0.5s;
 }
 
 @keyframes slideUp {
@@ -938,7 +876,7 @@ body {
     box-shadow: 0 0 0 3px rgba(0, 0, 145, 0.08);
 }
 
-#user-input {
+.user-input {
     flex: 1;
     border: none;
     outline: none;
@@ -952,7 +890,7 @@ body {
     color: var(--text-primary);
 }
 
-#user-input::placeholder {
+.user-input::placeholder {
     color: var(--text-secondary);
     font-style: italic;
 }
@@ -984,7 +922,6 @@ body {
     transform: translateY(-1px);
 }
 
-/* Bouton stop — remplace le bouton envoi pendant la génération */
 .send-button.stop-mode {
     background: var(--text-secondary);
     animation: stopPulse 1.5s ease-in-out infinite;
@@ -1021,7 +958,6 @@ body {
     background: rgba(0, 0, 145, 0.06);
 }
 
-/* Drag & drop indicator */
 .messages.drag-active {
     outline: 3px dashed var(--bleu-france);
     outline-offset: -6px;
@@ -1119,7 +1055,6 @@ body {
     overflow: hidden;
 }
 
-/* Tricolore en haut de la modal */
 .modal-content::before {
     content: '';
     position: absolute;
