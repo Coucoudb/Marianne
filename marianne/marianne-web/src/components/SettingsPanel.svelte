@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import type { DownloadProgress } from '../lib/types';
+    import { IS_TAURI } from '../lib/api';
+    import type { DownloadProgress } from '../lib/types';
 
   export let downloadPct: DownloadProgress | null = null;
 
@@ -51,6 +52,7 @@
   $: modelProgress = modelDownloading ? downloadPct : null;
 
   onMount(() => {
+    if (!IS_TAURI) return;
     loadDeviceInfo();
     loadInstalledModels();
     loadDevicePreference();
@@ -237,6 +239,12 @@
 </script>
 
 <div class="settings-panel">
+  {#if !IS_TAURI}
+    <h3 class="settings-title">Paramètres</h3>
+    <p class="settings-hint" style="text-align: center; padding: 16px 8px;">
+      Les paramètres (modèles, GPU) sont disponibles<br>uniquement dans l'application desktop.
+    </p>
+  {:else}
   <h3 class="settings-title">Paramètres</h3>
 
   <!-- Device info -->
@@ -416,4 +424,5 @@
       {/each}
     {/if}
   </div>
+  {/if}
 </div>

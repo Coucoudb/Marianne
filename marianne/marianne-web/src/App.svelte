@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+  import * as backend from './lib/backend';
+  import { IS_TAURI } from './lib/api';
 
   import Header from './components/Header.svelte';
   import ChatMessages from './components/ChatMessages.svelte';
   import InputArea from './components/InputArea.svelte';
   import SetupModal from './components/SetupModal.svelte';
+  import WebSettingsPage from './components/WebSettingsPage.svelte';
 
   import type { ChatMessage, StatusType, DownloadProgress } from './lib/types';
 
@@ -23,109 +24,14 @@
   let tokenBuffer = '';
   let streamingId: string | null = null;
   let stagedFiles: { path: string; name: string }[] = [];
+  let showWebSettings = false;
   let refreshTick = 0;
 
   // ─── Tauri event listeners ───────────────────────────────────────────────
-  const unlisteners: UnlistenFn[] = [];
+  const unlisteners: Array<() => void> = [];
 
   onMount(async () => {
-    const fns = await Promise.all([
-      listen<{ token: string; conversation_id: string }>('stream-token', ({ payload }) => {
-        if (!streamingId) return;
-        if (tokenBuffer === '') {
-          updateMsg(streamingId, { thinking: false, analyzing: false });
-        }
-        tokenBuffer += payload.token;
-        updateMsg(streamingId, { content: tokenBuffer });
-      }),
-
-      listen<{
-        full_response: string;
-        sources: string[];
-        tokens_generated: number;
-        time_ms: number;
-        conversation_id: string;
-      }>('generation-done', ({ payload }) => {
-        if (!streamingId) return;
-        const id = streamingId;
-        msgs = msgs.map(m =>
-          m.id === id
-            ? {
-                ...m,
-                content: payload.full_response || tokenBuffer,
-                streaming: false,
-                thinking: false,
-                analyzing: false,
-                sources: payload.sources,
-                stats: { time_ms: payload.time_ms, tokens_generated: payload.tokens_generated },
-              }
-            : m
-        );
-        generating = false;
-        streamingId = null;
-        tokenBuffer = '';
-      }),
-
-      listen<DownloadProgress>('download-progress', ({ payload }) => {
-        downloadPct = payload;
-      }),
-
-      listen('model-ready', async () => {
-        setStatus('ready', 'Marianne est prête');
-        modelLoaded = true;
-        showModal = false;
-        refreshTick += 1;
-        checkCorpusUpdate();
-      }),
-
-      listen<{ score: number; web_search_triggered: boolean; conversation_id: string }>(
-        'confidence-info',
-        ({ payload }) => {
-          if (!streamingId || !payload.web_search_triggered) return;
-          updateMsg(streamingId, {
-            webBadge: {
-              text: `🔍 Confiance ${Math.round(payload.score * 100)}% — recherche web en cours...`,
-              kind: 'searching',
-            },
-          });
-        }
-      ),
-
-      listen<{ status: string; sources_count: number }>('web-search-status', ({ payload }) => {
-        if (!streamingId || payload.status !== 'done') return;
-        updateMsg(streamingId, {
-          webBadge:
-            payload.sources_count > 0
-              ? {
-                  text: `🌐 ${payload.sources_count} source(s) web officielle(s) trouvée(s)`,
-                  kind: 'done',
-                }
-              : {
-                  text: '⚠️ Aucune source web trouvée — réponse basée sur le corpus local',
-                  kind: 'empty',
-                },
-        });
-      }),
-
-      listen<{ message: string; confidence: number }>('offline-mode', ({ payload }) => {
-        if (!streamingId) return;
-        updateMsg(streamingId, {
-          webBadge: { text: `📡 ${payload.message}`, kind: 'offline' },
-        });
-      }),
-
-      listen<{ message: string; conversation_id: string }>('contradiction-warning', ({ payload }) => {
-        if (!streamingId) return;
-        updateMsg(streamingId, { contradictionWarning: payload.message });
-      }),
-
-      listen<{ status: string; updated: number }>('corpus-update-status', ({ payload }) => {
-        if (payload.status === 'done' && payload.updated > 0) {
-          showCorpusToast(`📚 Corpus légal mis à jour — ${payload.updated} fiche(s) actualisée(s)`);
-        }
-      }),
-    ]);
-
+    const fns = await backend.setup(handleBackendEvent);
     unlisteners.push(...fns);
     await checkModelStatus();
   });
@@ -133,6 +39,98 @@
   onDestroy(() => {
     unlisteners.forEach(fn => fn());
   });
+
+  // ─── Backend event dispatcher ─────────────────────────────────────────────
+  function handleBackendEvent(event: string, payload: unknown) {
+    type P = Record<string, unknown>;
+    const p = payload as P;
+    switch (event) {
+      case 'stream-token': {
+        if (!streamingId) return;
+        if (tokenBuffer === '') {
+          updateMsg(streamingId, { thinking: false, analyzing: false });
+        }
+        tokenBuffer += p.token as string;
+        updateMsg(streamingId, { content: tokenBuffer });
+        break;
+      }
+      case 'generation-done': {
+        if (!streamingId) return;
+        const id = streamingId;
+        msgs = msgs.map(m =>
+          m.id === id
+            ? {
+                ...m,
+                content: (p.full_response as string) || tokenBuffer,
+                streaming: false,
+                thinking: false,
+                analyzing: false,
+                sources: p.sources as string[],
+                stats: {
+                  time_ms: p.time_ms as number,
+                  tokens_generated: p.tokens_generated as number,
+                },
+              }
+            : m
+        );
+        generating = false;
+        streamingId = null;
+        tokenBuffer = '';
+        break;
+      }
+      case 'download-progress':
+        downloadPct = payload as DownloadProgress;
+        break;
+      case 'model-ready':
+        setStatus('ready', 'Marianne est prête');
+        modelLoaded = true;
+        showModal = false;
+        refreshTick += 1;
+        checkCorpusUpdate();
+        break;
+      case 'confidence-info': {
+        if (!streamingId || !p.web_search_triggered) return;
+        updateMsg(streamingId, {
+          webBadge: {
+            text: `🔍 Confiance ${Math.round((p.score as number) * 100)}% — recherche web en cours...`,
+            kind: 'searching',
+          },
+        });
+        break;
+      }
+      case 'web-search-status': {
+        if (!streamingId || p.status !== 'done') return;
+        updateMsg(streamingId, {
+          webBadge:
+            (p.sources_count as number) > 0
+              ? {
+                  text: `🌐 ${p.sources_count} source(s) web officielle(s) trouvée(s)`,
+                  kind: 'done',
+                }
+              : {
+                  text: '⚠️ Aucune source web trouvée — réponse basée sur le corpus local',
+                  kind: 'empty',
+                },
+        });
+        break;
+      }
+      case 'offline-mode':
+        if (!streamingId) return;
+        updateMsg(streamingId, {
+          webBadge: { text: `📡 ${p.message as string}`, kind: 'offline' },
+        });
+        break;
+      case 'contradiction-warning':
+        if (!streamingId) return;
+        updateMsg(streamingId, { contradictionWarning: p.message as string });
+        break;
+      case 'corpus-update-status':
+        if (p.status === 'done' && (p.updated as number) > 0) {
+          showCorpusToast(`📚 Corpus légal mis à jour — ${p.updated} fiche(s) actualisée(s)`);
+        }
+        break;
+    }
+  }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
   function setStatus(type: StatusType, text: string) {
@@ -158,18 +156,16 @@
   // ─── Model management ─────────────────────────────────────────────────────
   async function checkModelStatus() {
     try {
-      const s = await invoke<{ model_downloaded: boolean; model_loaded: boolean }>(
-        'check_model_status'
-      );
+      const s = await backend.checkStatus();
       if (!s.model_downloaded) {
         showModal = true;
         setStatus('loading', 'Modèle non installé');
       } else if (!s.model_loaded) {
         setStatus('loading', 'Chargement du modèle...');
         try {
-          await invoke('load_model');
+          await backend.loadModel();
           setStatus('loading', 'Initialisation du RAG...');
-          await invoke('initialize_rag').catch(e => console.warn('RAG init:', e));
+          await backend.initRag().catch(e => console.warn('RAG init:', e));
           modelLoaded = true;
           setStatus('ready', 'Marianne est prête');
           refreshTick += 1;
@@ -177,10 +173,10 @@
         } catch {
           setStatus('loading', 'Erreur GPU — tentative en mode CPU...');
           try {
-            await invoke('set_device_preference', { preference: 'Cpu' });
-            await invoke('load_model');
+            await backend.setDevicePreference('Cpu');
+            await backend.loadModel();
             setStatus('loading', 'Initialisation du RAG...');
-            await invoke('initialize_rag').catch(e => console.warn('RAG init:', e));
+            await backend.initRag().catch(e => console.warn('RAG init:', e));
             modelLoaded = true;
             setStatus('ready', 'Marianne est prête (mode CPU)');
             refreshTick += 1;
@@ -195,25 +191,25 @@
         refreshTick += 1;
       }
     } catch (error) {
-      showModal = true;
-      setStatus('error', `Erreur : ${error}`);
+      showModal = IS_TAURI;
+      setStatus('error', `${IS_TAURI ? 'Erreur : ' : 'Serveur inaccessible : '}${error}`);
     }
   }
 
   async function handleDownload() {
     downloadPct = { percent: 0, downloaded_mb: 0, total_mb: 0 };
     try {
-      await invoke('download_model');
+      await backend.downloadModel();
       setStatus('loading', 'Chargement du modèle...');
       try {
-        await invoke('load_model');
+        await backend.loadModel();
       } catch {
         setStatus('loading', 'Erreur GPU — tentative en mode CPU...');
-        await invoke('set_device_preference', { preference: 'Cpu' });
-        await invoke('load_model');
+        await backend.setDevicePreference('Cpu');
+        await backend.loadModel();
       }
       setStatus('loading', 'Initialisation du RAG...');
-      await invoke('initialize_rag').catch(e => console.warn('RAG init:', e));
+      await backend.initRag().catch(e => console.warn('RAG init:', e));
       modelLoaded = true;
       setStatus('ready', 'Marianne est prête');
       showModal = false;
@@ -228,9 +224,9 @@
 
   async function checkCorpusUpdate() {
     try {
-      const needs = await invoke<boolean>('check_corpus_update');
+      const needs = await backend.checkCorpusUpdate();
       if (needs && modelLoaded) {
-        invoke('update_corpus').catch(e => console.warn('Mise à jour corpus:', e));
+        backend.updateCorpus().catch(e => console.warn('Mise à jour corpus:', e));
       }
     } catch {
       // silencieux
@@ -256,9 +252,10 @@
     });
 
     try {
-      const convId = await invoke<string>('send_message', {
-        request: { message, conversation_id: conversationId, max_tokens: 1024 },
-      });
+      const convId = await backend.sendChat(
+        { message, conversation_id: conversationId, max_tokens: 1024 },
+        handleBackendEvent
+      );
       conversationId = convId;
     } catch (error) {
       updateMsg(assistantId, {
@@ -271,13 +268,9 @@
     }
   }
 
-  async function stopGeneration() {
+  function stopGeneration() {
     if (!generating) return;
-    try {
-      await invoke('stop_generation');
-    } catch (e) {
-      console.warn('stop_generation:', e);
-    }
+    backend.stopGeneration();
   }
 
   // ─── Documents ────────────────────────────────────────────────────────────
@@ -293,6 +286,14 @@
 
   async function openFilePicker() {
     if (generating || !modelLoaded) return;
+    if (!IS_TAURI) {
+      addMsg({
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: "⚠️ L'analyse de documents n'est pas disponible en mode client web. Utilisez l'application desktop Marianne.",
+      });
+      return;
+    }
     try {
       const { open } = await import('@tauri-apps/plugin-dialog');
       const selected = await open({
@@ -347,9 +348,7 @@
     try {
       const extractions: { file_name: string; text: string }[] = [];
       for (const file of files) {
-        const result = await invoke<{ file_name: string; text: string }>('extract_document', {
-          request: { file_path: file.path, question: null },
-        });
+        const result = await backend.extractDocument({ file_path: file.path, question: null });
         extractions.push(result);
       }
 
@@ -366,9 +365,10 @@
         prompt = `Voici ${extractions.length} documents administratifs français :\n\n${docsText}\n\n---\n\nQuestion : ${q}`;
       }
 
-      const convId = await invoke<string>('send_message', {
-        request: { message: prompt, conversation_id: conversationId, max_tokens: 1024 },
-      });
+      const convId = await backend.sendChat(
+        { message: prompt, conversation_id: conversationId, max_tokens: 1024 },
+        handleBackendEvent
+      );
       conversationId = convId;
     } catch (error) {
       updateMsg(assistantId, {
@@ -389,23 +389,42 @@
       sendMessage(e.detail.message);
     }
   }
+
+  function openWebSettings() {
+    if (IS_TAURI) return;
+    showWebSettings = true;
+  }
+
+  function closeWebSettings() {
+    showWebSettings = false;
+  }
 </script>
 
 <div id="app">
-  <Header {statusType} {statusText} {refreshTick} {downloadPct} />
+  <Header
+    {statusType}
+    {statusText}
+    {refreshTick}
+    {downloadPct}
+    on:openWebSettings={openWebSettings}
+  />
 
   <main class="chat-container">
-    <ChatMessages {msgs} on:drop={handleDrop} />
+    {#if showWebSettings}
+      <WebSettingsPage on:close={closeWebSettings} />
+    {:else}
+      <ChatMessages {msgs} on:drop={handleDrop} />
 
-    <InputArea
-      {generating}
-      {modelLoaded}
-      {stagedFiles}
-      on:send={handleSend}
-      on:upload={openFilePicker}
-      on:removeFile={e => removeStagedFile(e.detail)}
-      on:stop={stopGeneration}
-    />
+      <InputArea
+        {generating}
+        {modelLoaded}
+        {stagedFiles}
+        on:send={handleSend}
+        on:upload={openFilePicker}
+        on:removeFile={e => removeStagedFile(e.detail)}
+        on:stop={stopGeneration}
+      />
+    {/if}
   </main>
 </div>
 

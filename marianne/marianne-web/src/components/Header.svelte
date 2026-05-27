@@ -1,6 +1,10 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte';
   import SettingsPanel from './SettingsPanel.svelte';
+  import { IS_TAURI } from '../lib/api';
   import type { StatusType, DownloadProgress } from '../lib/types';
+
+  const dispatch = createEventDispatcher<{ openWebSettings: void }>();
 
   export let statusType: StatusType = 'loading';
   export let statusText = 'Initialisation...';
@@ -12,6 +16,11 @@
   let headerEl: HTMLElement;
 
   function toggleSettings() {
+    if (!IS_TAURI) {
+      dispatch('openWebSettings');
+      return;
+    }
+
     showSettings = !showSettings;
     if (showSettings) {
       // Bind click-outside listener
@@ -63,7 +72,7 @@
       </svg>
     </button>
 
-    {#if showSettings}
+    {#if IS_TAURI && showSettings}
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
       <div role="presentation" on:click|stopPropagation={() => {}}>
         {#key panelKey}
