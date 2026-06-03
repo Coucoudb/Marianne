@@ -9,275 +9,45 @@ on:
 permissions:
   contents: write
 
-env:
-  CARGO_TERM_COLOR: always
-
-# ─── JOBS ──────────────────────────────────────────────────────────────────────
 jobs:
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # 1. BUILD NATIVE  (Desktop Tauri + Server binaire — par plateforme)
-  # ─────────────────────────────────────────────────────────────────────────────
-  build-native:
-    name: Build native (${{ matrix.platform-name }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            desktop-features: "custom-protocol,fastembed,vectordb,vulkan"
-            server-features:  "fastembed,vectordb,vulkan"
-            platform-name: windows-x64
-
-          - platform: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            desktop-features: "custom-protocol,fastembed,vectordb,vulkan"
-            server-features:  "fastembed,vectordb,vulkan"
-            platform-name: linux-x64
-
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            desktop-features: "custom-protocol,fastembed,vectordb,metal"
-            server-features:  "fastembed,vectordb,metal"
-            platform-name: macos-arm64
-
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # ── Versioning ─────────────────────────────────────────────────────────
-      - name: Set version from tag
-        shell: bash
-        run: |
-          if [[ "${{ github.ref_name }}" =~ ^v(.+)$ ]]; then
-            VERSION="${BASH_REMATCH[1]}"
-          else
-            VERSION="0.0.0"
-          fi
-          echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
-          echo "Version: $VERSION"
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" marianne/src-tauri/tauri.conf.json
-            sed -i '' "1,/^version = \".*\"/{s/^version = \".*\"/version = \"$VERSION\"/;}" marianne/src-tauri/Cargo.toml
-          else
-            sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" marianne/src-tauri/tauri.conf.json
-            sed -i "0,/^version = \".*\"/s//version = \"$VERSION\"/" marianne/src-tauri/Cargo.toml
-          fi
-          grep '"version"' marianne/src-tauri/tauri.conf.json
-          grep '^version' marianne/src-tauri/Cargo.toml | head -1
-
-      # ── Rust toolchain ─────────────────────────────────────────────────────
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: marianne -> target
-          key: ${{ matrix.target }}
-
-      # ── Node.js (requis par beforeBuildCommand de Tauri) ───────────────────
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install frontend deps
-        working-directory: marianne/marianne-web
-        run: npm install
-
-      # ── Vulkan (Windows) ───────────────────────────────────────────────────
-      - name: Install Vulkan SDK (Windows)
-        if: matrix.platform == 'windows-latest'
-        uses: humbletim/install-vulkan-sdk@v1.2
-        with:
-          version: 1.4.309.0
-          cache: true
-
-      - name: Verify Vulkan SDK (Windows)
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        run: |
-          Write-Host "VULKAN_SDK=$env:VULKAN_SDK"
-          $inc   = Join-Path $env:VULKAN_SDK "Include\vulkan\vulkan.h"
-          $lib   = Join-Path $env:VULKAN_SDK "Lib\vulkan-1.lib"
-          $glslc = Join-Path $env:VULKAN_SDK "Bin\glslc.exe"
-          if (-not (Test-Path $inc))   { Write-Error "Missing $inc";   exit 1 }
-          if (-not (Test-Path $lib))   { Write-Error "Missing $lib";   exit 1 }
-          if (-not (Test-Path $glslc)) { Write-Error "Missing $glslc"; exit 1 }
-          Write-Host "Vulkan SDK OK"
-
-      # ── Dépendances système ────────────────────────────────────────────────
-      - name: Install system deps (Linux)
-        if: matrix.platform == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            protobuf-compiler libprotobuf-dev cmake \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
-            libssl-dev libgtk-3-dev \
-            libvulkan-dev vulkan-tools glslc
-
-      - name: Install system deps (macOS)
-        if: startsWith(matrix.platform, 'macos')
-        run: brew install protobuf cmake
-
-      - name: Set macOS deployment target
-        if: startsWith(matrix.platform, 'macos')
-        run: echo "MACOSX_DEPLOYMENT_TARGET=10.15" >> $GITHUB_ENV
-
-      - name: Install protobuf (Windows)
-        if: matrix.platform == 'windows-latest'
-        run: choco install protoc --yes
-
-      - name: Setup MSVC (Windows)
-        if: matrix.platform == 'windows-latest'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: Short build path + Ninja (Windows)
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        run: |
-          echo "CARGO_TARGET_DIR=D:\cb" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          New-Item -ItemType Directory -Path "D:\cb" -Force | Out-Null
-          echo "CMAKE_GENERATOR=Ninja"   | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "CFLAGS=/FS"              | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "CXXFLAGS=/FS"            | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "CARGO_TARGET_DIR=D:\cb, CMAKE_GENERATOR=Ninja"
-
-      # ── Build Desktop (Tauri) ──────────────────────────────────────────────
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2.0" --locked
-
-      - name: Build Tauri desktop
-        working-directory: marianne
-        env:
-          RUST_BACKTRACE: '1'
-          CMAKE_VERBOSE_MAKEFILE: 'ON'
-        run: >
-          cargo tauri build
-          --target ${{ matrix.target }}
-          -- --no-default-features --features ${{ matrix.desktop-features }}
-
-      # ── Build Server binary ────────────────────────────────────────────────
-      - name: Build marianne-server
-        working-directory: marianne
-        env:
-          RUST_BACKTRACE: '1'
-        run: >
-          cargo build -p marianne-server --release
-          --target ${{ matrix.target }}
-          --no-default-features --features ${{ matrix.server-features }}
-
-      # ── Package server binary ──────────────────────────────────────────────
-      - name: Package server (Windows)
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        run: |
-          $src  = "D:\cb\${{ matrix.target }}\release\marianne-server.exe"
-          $dest = "marianne-server-${{ matrix.platform-name }}.zip"
-          Compress-Archive -Path $src -DestinationPath $dest
-          echo "SERVER_ARCHIVE=$dest" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Package server (Linux / macOS)
-        if: matrix.platform != 'windows-latest'
-        shell: bash
-        run: |
-          BIN="marianne/target/${{ matrix.target }}/release/marianne-server"
-          ARCHIVE="marianne-server-${{ matrix.platform-name }}.tar.gz"
-          tar czf "$ARCHIVE" -C "$(dirname "$BIN")" "$(basename "$BIN")"
-          echo "SERVER_ARCHIVE=$ARCHIVE" >> $GITHUB_ENV
-
-      # ── Upload desktop artifacts ───────────────────────────────────────────
-      - name: Upload desktop (Windows)
-        if: matrix.platform == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: marianne-desktop-${{ matrix.platform-name }}
-          path: |
-            D:/cb/${{ matrix.target }}/release/bundle/msi/*.msi
-            D:/cb/${{ matrix.target }}/release/bundle/nsis/*.exe
-
-      - name: Upload desktop (Linux)
-        if: matrix.platform == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: marianne-desktop-${{ matrix.platform-name }}
-          path: |
-            marianne/target/${{ matrix.target }}/release/bundle/deb/*.deb
-            marianne/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
-
-      - name: Upload desktop (macOS)
-        if: startsWith(matrix.platform, 'macos')
-        uses: actions/upload-artifact@v4
-        with:
-          name: marianne-desktop-${{ matrix.platform-name }}
-          path: marianne/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-
-      # ── Upload server artifact ─────────────────────────────────────────────
-      - name: Upload server
-        uses: actions/upload-artifact@v4
-        with:
-          name: marianne-server-${{ matrix.platform-name }}
-          path: ${{ env.SERVER_ARCHIVE }}
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # 2. BUILD WEB CLIENT  (Svelte statique — build unique, plateforme-agnostique)
-  # ─────────────────────────────────────────────────────────────────────────────
-  build-web-client:
-    name: Build web client
+  # ── Extract version ──────────────────────────────────────────────────────
+  prepare:
+    name: Prepare release
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set version from tag
-        shell: bash
+      - name: Extract version from tag
+        id: version
         run: |
           if [[ "${{ github.ref_name }}" =~ ^v(.+)$ ]]; then
-            echo "APP_VERSION=${BASH_REMATCH[1]}" >> $GITHUB_ENV
+            echo "version=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
           else
-            echo "APP_VERSION=0.0.0" >> $GITHUB_ENV
+            echo "version=0.0.0" >> $GITHUB_OUTPUT
           fi
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+  # ── Call build workflows ─────────────────────────────────────────────────
+  build-desktop:
+    needs: prepare
+    uses: ./.github/workflows/build-desktop.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
 
-      - name: Install deps
-        working-directory: marianne/marianne-web
-        run: npm install
+  build-server:
+    needs: prepare
+    uses: ./.github/workflows/build-server.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
 
-      - name: Build
-        working-directory: marianne/marianne-web
-        env:
-          VITE_APP_VERSION: ${{ env.APP_VERSION }}
-        run: npm run build
+  build-web:
+    needs: prepare
+    uses: ./.github/workflows/build-web.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
 
-      - name: Package dist/
-        run: |
-          cd marianne/marianne-web
-          zip -r "../../marianne-web-client-${{ env.APP_VERSION }}.zip" dist/
-          echo "WEB_ARCHIVE=marianne-web-client-${{ env.APP_VERSION }}.zip" >> $GITHUB_ENV
-
-      - name: Upload web client
-        uses: actions/upload-artifact@v4
-        with:
-          name: marianne-web-client
-          path: marianne-web-client-*.zip
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # 3. RELEASE  (crée la GitHub Release avec tous les artefacts)
-  # ─────────────────────────────────────────────────────────────────────────────
+  # ── Create GitHub Release ────────────────────────────────────────────────
   release:
-    needs: [build-native, build-web-client]
+    needs: [prepare, build-desktop, build-server, build-web]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -304,27 +74,44 @@ jobs:
             ### 🖥️ Application Desktop (Tauri)
 
             Interface graphique complète — le modèle IA (~2.2 Go) est téléchargé automatiquement au premier lancement.
-            Accélération GPU via Vulkan (Windows/Linux) ou Metal (macOS).
 
-            | Système | Artefact | Fichier |
-            |---|---|---|
-            | Windows | `marianne-desktop-windows-x64` | `.msi` (MSI) ou `.exe` (NSIS) |
-            | Linux | `marianne-desktop-linux-x64` | `.deb` ou `.AppImage` |
-            | macOS Apple Silicon | `marianne-desktop-macos-arm64` | `.dmg` |
+            **Choisissez la variante adaptée à votre matériel :**
+
+            | Système | Variante | Accélération GPU | Artefact |
+            |---------|----------|------------------|----------|
+            | **Windows** | CPU | ❌ CPU uniquement | `marianne-desktop-windows-x64-cpu` (`.msi` / `.exe`) |
+            | **Windows** | CUDA | ✅ GPU NVIDIA (RTX, GTX) | `marianne-desktop-windows-x64-cuda` (`.msi` / `.exe`) |
+            | **Windows** | Vulkan | ✅ GPU universel (NVIDIA, AMD, Intel) | `marianne-desktop-windows-x64-vulkan` (`.msi` / `.exe`) |
+            | **Linux** | CPU | ❌ CPU uniquement | `marianne-desktop-linux-x64-cpu` (`.deb` / `.AppImage`) |
+            | **Linux** | CUDA | ✅ GPU NVIDIA (RTX, GTX) | `marianne-desktop-linux-x64-cuda` (`.deb` / `.AppImage`) |
+            | **Linux** | Vulkan | ✅ GPU universel (NVIDIA, AMD, Intel) | `marianne-desktop-linux-x64-vulkan` (`.deb` / `.AppImage`) |
+            | **macOS** | CPU | ❌ CPU uniquement | `marianne-desktop-macos-arm64-cpu` (`.dmg`) |
+            | **macOS** | Metal | ✅ GPU Apple Silicon (M1/M2/M3) | `marianne-desktop-macos-arm64-metal` (`.dmg`) |
+
+            **Quelle variante choisir ?**
+            - **NVIDIA RTX/GTX** → CUDA (meilleure performance) ou Vulkan (fallback)
+            - **AMD/Intel** → Vulkan
+            - **Apple Silicon** → Metal
+            - **Pas de GPU ou CPU puissant** → CPU
 
             ---
 
             ### ⚙️ Serveur HTTP (`marianne-server`)
 
-            Binaire standalone exposant l'API REST + SSE.
-            Idéal pour une machine dédiée, un NAS ou un serveur distant.
-            Inclut l'accélération GPU (Vulkan/Metal).
+            Binaire standalone exposant l'API REST + SSE. Idéal pour machine dédiée, NAS ou serveur distant.
 
-            | Système | Artefact | Archive |
-            |---|---|---|
-            | Windows | `marianne-server-windows-x64` | `.zip` |
-            | Linux | `marianne-server-linux-x64` | `.tar.gz` |
-            | macOS Apple Silicon | `marianne-server-macos-arm64` | `.tar.gz` |
+            **Choisissez la variante adaptée à votre matériel :**
+
+            | Système | Variante | Accélération GPU | Archive |
+            |---------|----------|------------------|---------|
+            | **Windows** | CPU | ❌ CPU uniquement | `marianne-server-windows-x64-cpu.zip` |
+            | **Windows** | CUDA | ✅ GPU NVIDIA | `marianne-server-windows-x64-cuda.zip` |
+            | **Windows** | Vulkan | ✅ GPU universel | `marianne-server-windows-x64-vulkan.zip` |
+            | **Linux** | CPU | ❌ CPU uniquement | `marianne-server-linux-x64-cpu.tar.gz` |
+            | **Linux** | CUDA | ✅ GPU NVIDIA | `marianne-server-linux-x64-cuda.tar.gz` |
+            | **Linux** | Vulkan | ✅ GPU universel | `marianne-server-linux-x64-vulkan.tar.gz` |
+            | **macOS** | CPU | ❌ CPU uniquement | `marianne-server-macos-arm64-cpu.tar.gz` |
+            | **macOS** | Metal | ✅ GPU Apple Silicon | `marianne-server-macos-arm64-metal.tar.gz` |
 
             ```bash
             # Lancer le serveur (écoute 127.0.0.1:3000 par défaut)
@@ -365,6 +152,6 @@ jobs:
             - Corpus juridique français (CAF, URSSAF, retraite, logement, travail…)
             - Recherche web sur sources officielles en temps réel
             - Analyse de documents PDF/TXT/MD
-            - Accélération GPU automatique (Vulkan · Metal · CPU fallback)
+            - **Accélération GPU disponible** : CUDA (NVIDIA), Vulkan (universel), Metal (Apple Silicon), ou CPU uniquement
           files: artifacts/**/*
 

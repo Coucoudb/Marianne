@@ -1,13 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import Router from 'svelte-spa-router';
+  import { routes } from './routes';
   import * as backend from './lib/backend';
   import { IS_TAURI } from './lib/api';
 
   import Header from './components/Header.svelte';
-  import ChatMessages from './components/ChatMessages.svelte';
-  import InputArea from './components/InputArea.svelte';
   import SetupModal from './components/SetupModal.svelte';
-  import WebSettingsPage from './components/WebSettingsPage.svelte';
 
   import type { ChatMessage, StatusType, DownloadProgress } from './lib/types';
 
@@ -24,8 +23,6 @@
   let tokenBuffer = '';
   let streamingId: string | null = null;
   let stagedFiles: { path: string; name: string }[] = [];
-  let showWebSettings = false;
-  let refreshTick = 0;
 
   // ─── Tauri event listeners ───────────────────────────────────────────────
   const unlisteners: Array<() => void> = [];
@@ -85,7 +82,6 @@
         setStatus('ready', 'Marianne est prête');
         modelLoaded = true;
         showModal = false;
-        refreshTick += 1;
         checkCorpusUpdate();
         break;
       case 'confidence-info': {
@@ -142,10 +138,6 @@
     msgs = msgs.map(m => (m.id === id ? { ...m, ...patch } : m));
   }
 
-  function addMsg(msg: ChatMessage) {
-    msgs = [...msgs, msg];
-  }
-
   function showCorpusToast(text: string) {
     corpusToastText = text;
     setTimeout(() => {
@@ -168,7 +160,6 @@
           await backend.initRag().catch(e => console.warn('RAG init:', e));
           modelLoaded = true;
           setStatus('ready', 'Marianne est prête');
-          refreshTick += 1;
           checkCorpusUpdate();
         } catch {
           setStatus('loading', 'Erreur GPU — tentative en mode CPU...');
@@ -179,7 +170,6 @@
             await backend.initRag().catch(e => console.warn('RAG init:', e));
             modelLoaded = true;
             setStatus('ready', 'Marianne est prête (mode CPU)');
-            refreshTick += 1;
             checkCorpusUpdate();
           } catch (cpuError) {
             setStatus('error', `Impossible de charger le modèle : ${cpuError}`);
@@ -188,7 +178,6 @@
       } else {
         modelLoaded = true;
         setStatus('ready', 'Marianne est prête');
-        refreshTick += 1;
       }
     } catch (error) {
       showModal = IS_TAURI;
@@ -214,7 +203,6 @@
       setStatus('ready', 'Marianne est prête');
       showModal = false;
       downloadPct = null;
-      refreshTick += 1;
       checkCorpusUpdate();
     } catch (error) {
       setStatus('error', `Erreur : ${error}`);
@@ -233,198 +221,28 @@
     }
   }
 
-  // ─── Chat ─────────────────────────────────────────────────────────────────
-  async function sendMessage(message: string) {
-    if (!message.trim() || generating || !modelLoaded) return;
-    generating = true;
-
-    addMsg({ id: crypto.randomUUID(), role: 'user', content: message });
-
-    const assistantId = crypto.randomUUID();
-    streamingId = assistantId;
-    tokenBuffer = '';
-    addMsg({
-      id: assistantId,
-      role: 'assistant',
-      content: '',
-      thinking: true,
-      streaming: true,
-    });
-
-    try {
-      const convId = await backend.sendChat(
-        { message, conversation_id: conversationId, max_tokens: 1024 },
-        handleBackendEvent
-      );
-      conversationId = convId;
-    } catch (error) {
-      updateMsg(assistantId, {
-        content: `❌ Erreur : ${error}`,
-        streaming: false,
-        thinking: false,
-      });
-      generating = false;
-      streamingId = null;
-    }
-  }
-
-  function stopGeneration() {
-    if (!generating) return;
-    backend.stopGeneration();
-  }
-
-  // ─── Documents ────────────────────────────────────────────────────────────
-  function stageFile(path: string) {
-    if (stagedFiles.some(f => f.path === path)) return;
-    const name = path.split(/[\\/]/).pop() || 'document';
-    stagedFiles = [...stagedFiles, { path, name }];
-  }
-
-  function removeStagedFile(path: string) {
-    stagedFiles = stagedFiles.filter(f => f.path !== path);
-  }
-
-  async function openFilePicker() {
-    if (generating || !modelLoaded) return;
-    if (!IS_TAURI) {
-      addMsg({
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: "⚠️ L'analyse de documents n'est pas disponible en mode client web. Utilisez l'application desktop Marianne.",
-      });
-      return;
-    }
-    try {
-      const { open } = await import('@tauri-apps/plugin-dialog');
-      const selected = await open({
-        filters: [{ name: 'Documents', extensions: ['pdf', 'txt', 'md'] }],
-        multiple: true,
-      });
-      if (selected) {
-        const paths = Array.isArray(selected) ? selected : [selected as string];
-        for (const p of paths) stageFile(p);
-      }
-    } catch (e) {
-      console.error('Erreur sélection fichier:', e);
-    }
-  }
-
-  function handleDrop(e: CustomEvent<FileList>) {
-    for (const file of e.detail) {
-      const ext = file.name.split('.').pop()?.toLowerCase();
-      if (['pdf', 'txt', 'md'].includes(ext ?? '')) {
-        const path = (file as any).path;
-        if (path) stageFile(path);
-      } else {
-        addMsg({
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: `⚠️ Fichier « ${file.name} » ignoré — format non supporté. Utilisez PDF, TXT ou MD.`,
-        });
-      }
-    }
-  }
-
-  async function sendWithDocuments(message: string) {
-    const files = [...stagedFiles];
-    stagedFiles = [];
-    generating = true;
-
-    const fileLabels = files.map(f => `📄 ${f.name}`).join(', ');
-    const displayMessage = message ? `${fileLabels}\n\n${message}` : fileLabels;
-    addMsg({ id: crypto.randomUUID(), role: 'user', content: displayMessage });
-
-    const assistantId = crypto.randomUUID();
-    streamingId = assistantId;
-    tokenBuffer = '';
-    addMsg({
-      id: assistantId,
-      role: 'assistant',
-      content: '',
-      analyzing: true,
-      streaming: true,
-    });
-
-    try {
-      const extractions: { file_name: string; text: string }[] = [];
-      for (const file of files) {
-        const result = await backend.extractDocument({ file_path: file.path, question: null });
-        extractions.push(result);
-      }
-
-      let prompt: string;
-      if (extractions.length === 1) {
-        const doc = extractions[0];
-        const q = message || 'Explique ce document en langage clair et dis-moi ce que je dois faire.';
-        prompt = `Voici un document administratif français (${doc.file_name}) :\n\n---\n${doc.text}\n---\n\nQuestion : ${q}`;
-      } else {
-        const docsText = extractions
-          .map((doc, i) => `── Document ${i + 1} : ${doc.file_name} ──\n${doc.text}`)
-          .join('\n\n');
-        const q = message || 'Explique ces documents en langage clair et dis-moi ce que je dois faire.';
-        prompt = `Voici ${extractions.length} documents administratifs français :\n\n${docsText}\n\n---\n\nQuestion : ${q}`;
-      }
-
-      const convId = await backend.sendChat(
-        { message: prompt, conversation_id: conversationId, max_tokens: 1024 },
-        handleBackendEvent
-      );
-      conversationId = convId;
-    } catch (error) {
-      updateMsg(assistantId, {
-        content: `❌ ${error}`,
-        streaming: false,
-        analyzing: false,
-      });
-      generating = false;
-      streamingId = null;
-    }
-  }
-
-  // ─── Event handlers from child components ─────────────────────────────────
-  function handleSend(e: CustomEvent<{ message: string; hasFiles: boolean }>) {
-    if (e.detail.hasFiles) {
-      sendWithDocuments(e.detail.message);
-    } else {
-      sendMessage(e.detail.message);
-    }
-  }
-
-  function openWebSettings() {
-    if (IS_TAURI) return;
-    showWebSettings = true;
-  }
-
-  function closeWebSettings() {
-    showWebSettings = false;
-  }
+  // Props to pass to routed components
+  const routeProps = {
+    generating,
+    conversationId,
+    msgs,
+    stagedFiles,
+    modelLoaded,
+    downloadPct,
+    tokenBuffer,
+    streamingId,
+  };
 </script>
 
 <div id="app">
   <Header
     {statusType}
     {statusText}
-    {refreshTick}
     {downloadPct}
-    on:openWebSettings={openWebSettings}
   />
 
-  <main class="chat-container">
-    {#if showWebSettings}
-      <WebSettingsPage on:close={closeWebSettings} />
-    {:else}
-      <ChatMessages {msgs} on:drop={handleDrop} />
-
-      <InputArea
-        {generating}
-        {modelLoaded}
-        {stagedFiles}
-        on:send={handleSend}
-        on:upload={openFilePicker}
-        on:removeFile={e => removeStagedFile(e.detail)}
-        on:stop={stopGeneration}
-      />
-    {/if}
+  <main class="app-content">
+    <Router {routes} />
   </main>
 </div>
 
@@ -435,3 +253,10 @@
 {#if corpusToastText}
   <div class="corpus-toast">{corpusToastText}</div>
 {/if}
+
+<style>
+  .app-content {
+    flex: 1;
+    overflow: hidden;
+  }
+</style>

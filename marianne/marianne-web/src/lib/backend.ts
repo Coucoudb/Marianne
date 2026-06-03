@@ -205,23 +205,113 @@ export function stopGeneration(): void {
   }
 }
 
-// ─── Documents ───────────────────────────────────────────────────────────────
+// ─── History ─────────────────────────────────────────────────────────────────
 
-/**
- * Extrait le texte d'un document.
- * - Tauri  : invoke('extract_document') — le fichier est local
- * - HTTP   : non supporté (le serveur ne peut pas accéder aux fichiers locaux
- *            du navigateur sans upload multipart — non implémenté)
- */
-export async function extractDocument(request: {
-  file_path: string;
-  question: string | null;
-}): Promise<{ file_name: string; text: string }> {
+export async function getHistory(conversationId: string): Promise<import('./types').ConversationTurn[]> {
+  if (IS_TAURI) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke('get_history', { conversationId });
+  }
+  const res = await fetch(`${getApiUrl()}/api/v1/history/${encodeURIComponent(conversationId)}`);
+  if (!res.ok) throw new Error(`Failed to fetch history: ${res.status}`);
+  return res.json();
+}
+
+// ─── Profile ─────────────────────────────────────────────────────────────────
+
+export async function getProfile(): Promise<import('./types').UserProfile> {
+  if (IS_TAURI) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke('get_profile');
+  }
+  const res = await fetch(`${getApiUrl()}/api/v1/profile`);
+  if (!res.ok) throw new Error(`Failed to fetch profile: ${res.status}`);
+  return res.json();
+}
+
+export async function updateProfile(profile: import('./types').UserProfile): Promise<void> {
+  if (IS_TAURI) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke('update_profile', { profile });
+  }
+  const res = await fetch(`${getApiUrl()}/api/v1/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profile),
+  });
+  if (!res.ok) throw new Error(`Failed to update profile: ${res.status}`);
+}
+
+// ─── Documents ────────────────────────────────────────────────────────────────
+
+export async function extractDocument(
+  request: import('./types').ExtractRequest
+): Promise<import('./types').ExtractedDocument> {
   if (IS_TAURI) {
     const { invoke } = await import('@tauri-apps/api/core');
     return invoke('extract_document', { request });
   }
-  throw new Error(
-    "L'analyse de documents n'est pas disponible en mode client web. Utilisez l'application desktop Marianne."
-  );
+  const res = await fetch(`${getApiUrl()}/api/v1/documents/extract`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to extract document: ${res.status} - ${errorText}`);
+  }
+  return res.json();
+}
+
+// ─── System ──────────────────────────────────────────────────────────────────
+
+export async function getSystemInfo(): Promise<import('./types').SystemInfo> {
+  if (IS_TAURI) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke('get_system_info');
+  }
+  const res = await fetch(`${getApiUrl()}/api/v1/system/info`);
+  if (!res.ok) throw new Error(`Failed to fetch system info: ${res.status}`);
+  return res.json();
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+export async function getModelsStatus(): Promise<import('./types').ModelsStatus> {
+  if (IS_TAURI) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke('get_models_status');
+  }
+  const res = await fetch(`${getApiUrl()}/api/v1/models/status`);
+  if (!res.ok) throw new Error(`Failed to fetch models status: ${res.status}`);
+  return res.json();
+}
+
+export async function downloadNewModel(
+  request: import('./types').DownloadModelRequest
+): Promise<{ status: string; model_id: string }> {
+  if (IS_TAURI) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke('download_new_model', { request });
+  }
+  const res = await fetch(`${getApiUrl()}/api/v1/models/download`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(`Failed to start model download: ${res.status}`);
+  return res.json();
+}
+
+export async function loadModelById(modelId: string): Promise<void> {
+  if (IS_TAURI) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke('load_model_by_id', { modelId });
+  }
+  const res = await fetch(`${getApiUrl()}/api/v1/models/load`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model_id: modelId }),
+  });
+  if (!res.ok) throw new Error(`Failed to load model: ${res.status}`);
 }

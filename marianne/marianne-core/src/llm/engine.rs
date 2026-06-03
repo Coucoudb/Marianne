@@ -13,6 +13,48 @@ use std::num::NonZeroU32;
 use std::path::Path;
 use std::pin::pin;
 
+/// Détecte si un GPU est présent au niveau système (Windows uniquement)
+/// Retourne un hint pour aider le diagnostic
+#[cfg(target_os = "windows")]
+fn detect_system_gpu_hint() -> Option<String> {
+    use std::process::Command;
+    
+    // Essayer wmic pour détecter les cartes graphiques
+    let output = Command::new("wmic")
+        .args(["path", "win32_VideoController", "get", "name"])
+        .output()
+        .ok()?;
+    
+    let text = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = text.lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.eq_ignore_ascii_case("name"))
+        .collect();
+    
+    if lines.is_empty() {
+        return None;
+    }
+    
+    // Identifier le type de GPU
+    let gpus = lines.join(", ");
+    if gpus.to_lowercase().contains("nvidia") {
+        Some(format!("GPU NVIDIA détecté: {}", gpus))
+    } else if gpus.to_lowercase().contains("amd") || gpus.to_lowercase().contains("radeon") {
+        Some(format!("GPU AMD détecté: {}", gpus))
+    } else if gpus.to_lowercase().contains("intel") {
+        Some(format!("GPU Intel détecté: {}", gpus))
+    } else {
+        Some(format!("GPU détecté: {}", gpus))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn detect_system_gpu_hint() -> Option<String> {
+    // Sur Linux/macOS, on pourrait utiliser lspci ou system_profiler
+    // Mais pour l'instant on laisse None (pas prioritaire)
+    None
+}
+
 /// Séquences textuelles qui indiquent la fin de la réponse
 const STOP_SEQUENCES: &[&str] = &[
     "<|end|>",
@@ -69,8 +111,8 @@ impl LlmEngine {
 
         if !model_path.exists() {
             anyhow::bail!(
-                "Modèle introuvable : {:?}. Lancez le téléchargement d'abord.",
-                model_path
+                "Modèle introuvable : {}. Lancez le téléchargement d'abord.",
+                model_path.file_name().and_then(|n| n.to_str()).unwrap_or("fichier")
             );
         }
 
@@ -92,8 +134,9 @@ impl LlmEngine {
         let config = EngineConfig::default();
 
         // Détection runtime des devices GPU disponibles
-        let gpu_devices: Vec<_> = llama_cpp_2::list_llama_ggml_backend_devices()
-            .into_iter()
+        let all_devices = llama_cpp_2::list_llama_ggml_backend_devices();
+        let gpu_devices: Vec<_> = all_devices
+            .iter()
             .filter(|d| {
                 matches!(
                     d.device_type,
@@ -106,13 +149,33 @@ impl LlmEngine {
 
         let has_gpu = !gpu_devices.is_empty();
 
-        for dev in &gpu_devices {
-            tracing::info!(
-                "🎮 GPU détecté : {} ({:?}, {} Mo VRAM)",
-                dev.description,
-                dev.device_type,
-                dev.memory_free / 1_048_576,
-            );
+        // Afficher les GPU détectés
+        if has_gpu {
+            for dev in &gpu_devices {
+                tracing::info!(
+                    "🎮 GPU détecté : {} ({:?}, {} Mo VRAM)",
+                    dev.description,
+                    dev.device_type,
+                    dev.memory_free / 1_048_576,
+                );
+            }
+        } else {
+            tracing::warn!("💻 Aucun backend GPU détecté par llama.cpp");
+            
+            // Diagnostic : détection système des GPU Windows
+            #[cfg(target_os = "windows")]
+            if let Some(hint) = detect_system_gpu_hint() {
+                tracing::warn!(
+                    "⚠️ Matériel GPU détecté ({}) mais llama.cpp ne le voit pas.",
+                    hint
+                );
+                tracing::warn!(
+                    "   Cause probable : llama.cpp compilé sans support GPU (cuda/vulkan)."
+                );
+                tracing::warn!("   Solution :");
+                tracing::warn!("   • GPU NVIDIA RTX → Recompilez avec: cargo build --release --features cuda");
+                tracing::warn!("   • GPU AMD/Intel/Autre → Recompilez avec: cargo build --release --features vulkan");
+            }
         }
 
         let n_gpu_layers = match device_preference {
@@ -125,7 +188,7 @@ impl LlmEngine {
                 config.n_gpu_layers
             }
             DevicePreference::Gpu => {
-                tracing::info!("💻 Aucun GPU détecté — fallback CPU automatique");
+                tracing::warn!("💻 Préférence GPU demandée, mais aucun GPU détecté — fallback CPU");
                 0
             }
         };
@@ -172,7 +235,40 @@ impl LlmEngine {
             .with_split_mode(split_mode));
 
         let model = LlamaModel::load_from_file(&backend, &model_path, &model_params)
-            .map_err(|e| anyhow::anyhow!("Erreur chargement modèle : {:?}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("{:?}", e);
+                let mut hint = String::from("Erreur chargement modèle");
+                
+                // Diagnostic hint: VRAM insuffisante
+                if err_msg.contains("OUT_OF_MEMORY") 
+                    || err_msg.contains("out of memory") 
+                    || err_msg.contains("OutOfMemory") {
+                    hint.push_str("\n💡 Conseil : VRAM GPU insuffisante. Essayez :");
+                    hint.push_str("\n   • Réduire le nombre de couches GPU (n_gpu_layers)");
+                    hint.push_str("\n   • Utiliser un modèle quantifié plus léger (Q4_K_M au lieu de Q6_K)");
+                    hint.push_str("\n   • Basculer en mode CPU dans les préférences");
+                }
+                // Diagnostic hint: Fichier corrompu ou format invalide
+                else if err_msg.contains("invalid") 
+                    || err_msg.contains("magic") 
+                    || err_msg.contains("corrupt") {
+                    hint.push_str("\n💡 Conseil : Le fichier GGUF semble corrompu ou invalide. Essayez :");
+                    hint.push_str("\n   • Re-télécharger le modèle");
+                    hint.push_str("\n   • Vérifier l'intégrité du fichier (checksum)");
+                    hint.push_str("\n   • S'assurer que le format est compatible (GGUF uniquement)");
+                }
+                // Diagnostic hint: Permission ou fichier inaccessible
+                else if err_msg.contains("permission") 
+                    || err_msg.contains("access") 
+                    || err_msg.contains("locked") {
+                    hint.push_str("\n💡 Conseil : Impossible d'accéder au fichier. Vérifiez :");
+                    hint.push_str("\n   • Les permissions du fichier");
+                    hint.push_str("\n   • Qu'aucun autre processus n'utilise le modèle");
+                    hint.push_str("\n   • Que le chemin est correct et accessible");
+                }
+                
+                anyhow::anyhow!("{} : {:?}\n{}", hint, e, if hint.contains("💡") { "" } else { "" })
+            })?;
 
         let device_label = if n_gpu_layers > 0 && has_gpu { "GPU" } else { "CPU" };
         let size_mb = std::fs::metadata(&model_path)
@@ -214,7 +310,24 @@ impl LlmEngine {
         let mut ctx = self
             .model
             .new_context(&self.backend, ctx_params)
-            .map_err(|e| anyhow::anyhow!("Erreur création contexte : {:?}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("{:?}", e);
+                let mut hint = String::from("Erreur création contexte");
+                
+                // Diagnostic hint: VRAM insuffisante pour le contexte
+                if err_msg.contains("OUT_OF_MEMORY") 
+                    || err_msg.contains("out of memory") 
+                    || err_msg.contains("OutOfMemory")
+                    || err_msg.contains("allocation") {
+                    hint.push_str("\n💡 Conseil : VRAM insuffisante pour créer le contexte. Essayez :");
+                    hint.push_str(&format!("\n   • Réduire la taille du contexte (actuellement {} tokens)", self.config.context_length));
+                    hint.push_str("\n   • Réduire le nombre de couches GPU (n_gpu_layers)");
+                    hint.push_str("\n   • Libérer de la VRAM (fermer d'autres applications GPU)");
+                    hint.push_str("\n   • Basculer en mode CPU dans les préférences");
+                }
+                
+                anyhow::anyhow!("{} : {:?}", hint, e)
+            })?;
 
         // 2. Tokeniser le prompt
         let tokens_list = self
@@ -261,7 +374,22 @@ impl LlmEngine {
         }
 
         ctx.decode(&mut batch)
-            .map_err(|e| anyhow::anyhow!("Erreur prefill : {:?}", e))?;
+            .map_err(|e| {
+                let err_msg = format!("{:?}", e);
+                let mut hint = String::from("Erreur prefill (encodage du prompt)");
+                
+                // Diagnostic hint: Débordement de contexte
+                if err_msg.contains("context") 
+                    || err_msg.contains("overflow") 
+                    || err_msg.contains("exceed") {
+                    hint.push_str(&format!("\n💡 Conseil : Le prompt ({} tokens) est trop long. Essayez :", prompt_len));
+                    hint.push_str(&format!("\n   • Réduire la longueur du prompt (max: {} tokens)", self.config.context_length));
+                    hint.push_str("\n   • Augmenter la taille du contexte dans la configuration");
+                    hint.push_str("\n   • Résumer le contenu RAG avant injection");
+                }
+                
+                anyhow::anyhow!("{} : {:?}", hint, e)
+            })?;
 
         tracing::info!("Premier token généré (prefill terminé)");
 
@@ -336,7 +464,24 @@ impl LlmEngine {
             n_cur += 1;
 
             ctx.decode(&mut batch)
-                .map_err(|e| anyhow::anyhow!("Erreur decode : {:?}", e))?;
+                .map_err(|e| {
+                    let err_msg = format!("{:?}", e);
+                    let mut hint = String::from("Erreur decode (génération de token)");
+                    
+                    // Diagnostic hint: Débordement de contexte en génération
+                    if err_msg.contains("context") 
+                        || err_msg.contains("overflow") 
+                        || err_msg.contains("exceed") {
+                        let total_tokens = n_cur as usize;
+                        hint.push_str(&format!("\n💡 Conseil : Débordement du contexte ({} tokens utilisés sur {}). Essayez :", 
+                            total_tokens, self.config.context_length));
+                        hint.push_str("\n   • Réduire max_tokens pour la génération");
+                        hint.push_str("\n   • Augmenter context_length dans la configuration");
+                        hint.push_str("\n   • Utiliser un prompt plus court");
+                    }
+                    
+                    anyhow::anyhow!("{} : {:?}", hint, e)
+                })?;
         }
 
         tracing::info!("Génération terminée : {} tokens produits", generated_count);

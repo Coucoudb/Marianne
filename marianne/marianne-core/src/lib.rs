@@ -7,6 +7,7 @@ pub mod network;
 pub mod profile;
 pub mod prompts;
 pub mod rag;
+pub mod setup;
 pub mod state;
 pub mod web;
 pub mod chat;

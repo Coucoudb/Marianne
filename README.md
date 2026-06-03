@@ -93,27 +93,82 @@ marianne/                          ← Workspace Cargo
 - **Tauri CLI** v2 (`cargo install tauri-cli --version "^2.0"`)
 - **CMake** ≥ 3.21
 - Windows : Visual Studio Build Tools (MSVC) + WebView2
-- *Optionnel* : **CUDA Toolkit** ≥ 12.0 + GPU NVIDIA
+- *Optionnel* : **CUDA Toolkit** ≥ 12.0 + GPU NVIDIA (pour accélération CUDA)
+- *Optionnel* : **Vulkan SDK** (pour accélération GPU universelle)
+
+## ⚡ Compilation avec support GPU
+
+**Par défaut, llama.cpp est compilé en mode CPU uniquement** (aucune feature GPU activée).
+
+Pour bénéficier de l'accélération GPU, vous devez compiler avec les features appropriées :
+
+### GPU NVIDIA (CUDA) — Performances maximales
+```bash
+# Prérequis : CUDA Toolkit ≥ 12.0 + pilote NVIDIA récent
+cargo build --release --features cuda
+
+# App desktop
+cargo tauri build --features cuda
+
+# Serveur HTTP
+cargo build -p marianne-server --release --features cuda
+```
+
+### GPU Universel (Vulkan) — Compatible AMD, NVIDIA, Intel
+```bash
+# Prérequis : Vulkan SDK installé + pilotes à jour
+cargo build --release --features vulkan
+
+# App desktop
+cargo tauri build --features vulkan
+
+# Serveur HTTP
+cargo build -p marianne-server --release --features vulkan
+```
+
+### GPU Apple Silicon (Metal) — macOS uniquement
+```bash
+# Prérequis : macOS avec puce M1/M2/M3
+cargo build --release --features metal
+
+# App desktop
+cargo tauri build --features metal
+
+# Serveur HTTP
+cargo build -p marianne-server --release --features metal
+```
+
+### Recommandations
+- **RTX 3060/4070/4090** → Utilisez `cuda` (meilleure performance)
+- **AMD RX 6000/7000** → Utilisez `vulkan` (seul support disponible)
+- **GPU intégré Intel** → Utilisez `vulkan` (support basique)
+- **Apple M1/M2/M3** → Utilisez `metal` (natif Apple Silicon)
+- **CPU uniquement** → Aucune feature nécessaire (par défaut)
+
+⚠️ **Important** : Si vous démarrez l'application et voyez "Mode CPU" alors que vous avez un GPU, c'est que llama.cpp a été compilé sans support GPU. Recompilez avec la feature appropriée.
 
 ## Démarrage rapide
 
 ```bash
 cd marianne
 
-# App desktop — CPU
+# App desktop — CPU (par défaut)
 cargo tauri dev
 
-# App desktop — GPU (Vulkan, compatible toute carte récente)
+# App desktop — GPU Vulkan (universel)
 cargo tauri dev --features vulkan
 
-# Serveur HTTP — CPU
+# App desktop — GPU CUDA (NVIDIA uniquement, optimal)
+cargo tauri dev --features cuda
+
+# Serveur HTTP — CPU (par défaut)
 cargo run -p marianne-server -- --bind 0.0.0.0:3000
 
-# Serveur HTTP — GPU (Vulkan)
+# Serveur HTTP — GPU Vulkan
 cargo run -p marianne-server --features vulkan -- --bind 0.0.0.0:3000
 
-# GPU NVIDIA avec CUDA (accélération maximale)
-cargo tauri dev --features cuda
+# Serveur HTTP — GPU CUDA
+cargo run -p marianne-server --features cuda -- --bind 0.0.0.0:3000
 ```
 
 Au premier lancement, configurez et téléchargez un modèle GGUF depuis l'interface (HuggingFace ou chemin local).

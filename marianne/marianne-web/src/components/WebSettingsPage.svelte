@@ -1,8 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
   import { DEFAULT_API_URL, getApiUrl, isValidHttpUrl, resetApiUrl, setApiUrl } from '../lib/api';
-
-  const dispatch = createEventDispatcher<{ close: void }>();
 
   let apiUrl = getApiUrl();
   let saving = false;
@@ -10,10 +7,6 @@
   let statusType: 'info' | 'success' | 'error' = 'info';
   let statusText =
     "Configurez l'URL de marianne-server. Cette valeur est sauvegardée localement dans votre navigateur.";
-
-  function closePage() {
-    dispatch('close');
-  }
 
   function onSave() {
     const candidate = apiUrl.trim();
@@ -87,11 +80,9 @@
 </script>
 
 <section class="web-settings-page">
-  <div class="web-settings-head">
-    <button type="button" class="web-settings-back" on:click={closePage}>
-      ← Retour au chat
-    </button>
-    <h2>Réglages Web</h2>
+  <div class="page-header">
+    <h2>🌐 Configuration du serveur</h2>
+    <p class="page-subtitle">Définissez l'URL de marianne-server pour l'interface web</p>
   </div>
 
   <div class="web-settings-card">
@@ -145,3 +136,138 @@
     <p class="web-settings-default">URL par défaut du build: {DEFAULT_API_URL}</p>
   </div>
 </section>
+
+<style>
+  .web-settings-page {
+    padding: var(--spacing-lg);
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  .page-header {
+    margin-bottom: var(--spacing-xl);
+  }
+
+  .page-header h2 {
+    font-size: 1.75rem;
+    color: var(--text-primary);
+    margin: 0 0 var(--spacing-sm) 0;
+  }
+
+  .page-subtitle {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    margin: 0;
+  }
+
+  .web-settings-card {
+    background: var(--bg-secondary);
+    padding: var(--spacing-xl);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .web-settings-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: var(--spacing-sm);
+    color: var(--text-primary);
+  }
+
+  .web-settings-input {
+    width: 100%;
+    padding: var(--spacing-md);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 1rem;
+    font-family: 'Courier New', monospace;
+    background: var(--bg-primary);
+  }
+
+  .web-settings-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .web-settings-help {
+    margin-top: var(--spacing-sm);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  .web-settings-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-lg);
+    flex-wrap: wrap;
+  }
+
+  .web-settings-btn {
+    padding: var(--spacing-sm) var(--spacing-lg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .web-settings-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    background: var(--bg-hover);
+  }
+
+  .web-settings-btn.ghost {
+    background: none;
+    border-color: transparent;
+    color: var(--text-secondary);
+  }
+
+  .web-settings-btn.ghost:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+  }
+
+  .web-settings-btn.primary {
+    background: var(--bleu-france);
+    color: var(--blanc);
+    border-color: var(--bleu-france);
+  }
+
+  .web-settings-btn.primary:hover:not(:disabled) {
+    background: var(--bleu-france-light);
+  }
+
+  .web-settings-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .web-settings-status {
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-sm);
+    background: var(--bg-chat);
+    border-left: 3px solid var(--border);
+    font-size: 0.9rem;
+  }
+
+  .web-settings-status.success {
+    border-left-color: var(--success);
+    background: #e8f5e9;
+  }
+
+  .web-settings-status.error {
+    border-left-color: var(--error);
+    background: #ffebee;
+  }
+
+  .web-settings-default {
+    margin-top: var(--spacing-md);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+</style>

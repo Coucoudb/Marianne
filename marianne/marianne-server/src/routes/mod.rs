@@ -3,7 +3,9 @@
 pub mod chat;
 pub mod documents;
 pub mod history;
+pub mod models;
 pub mod profile;
+pub mod system;
 
 use crate::state::ServerState;
 use axum::{routing::get, Router};
@@ -34,6 +36,11 @@ fn api_routes() -> Router<ServerState> {
             "/documents/extract",
             axum::routing::post(documents::extract_handler),
         )
+        .route("/system/info", get(system::get_system_info))
+        .route("/models/status", get(models::get_models_status))
+        .route("/models/download", axum::routing::post(models::download_model))
+        .route("/models/load", axum::routing::post(models::load_model))
+        .route("/models/setup", axum::routing::post(models::setup_model))
 }
 
 async fn health() -> &'static str {

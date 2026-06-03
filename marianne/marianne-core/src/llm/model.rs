@@ -82,10 +82,24 @@ impl LoadedModel {
         let device = get_best_device(device_preference)?;
 
         let mut file = std::fs::File::open(model_path)
-            .with_context(|| format!("Impossible d'ouvrir {:?}", model_path))?;
+            .with_context(|| {
+                format!("Impossible d'ouvrir {}\n💡 Conseil : Vérifiez que le fichier existe et que vous avez les permissions de lecture.", 
+                    model_path.file_name().and_then(|n| n.to_str()).unwrap_or("le modèle"))
+            })?;
 
         let gguf_content = candle_core::quantized::gguf_file::Content::read(&mut file)
-            .context("Erreur de lecture GGUF")?;
+            .map_err(|e| {
+                let err_msg = format!("{:?}", e);
+                let mut hint = String::from("Erreur de lecture GGUF");
+                
+                if err_msg.contains("magic") || err_msg.contains("invalid") {
+                    hint.push_str("\n💡 Conseil : Le fichier GGUF semble invalide ou corrompu. Essayez :");
+                    hint.push_str("\n   • Re-télécharger le modèle");
+                    hint.push_str("\n   • Vérifier le format (doit être GGUF)");
+                }
+                
+                anyhow::anyhow!("{}: {:?}", hint, e)
+            })?;
 
         // Tenter le chargement sur le device choisi, fallback CPU si OOM GPU
         let (final_model, final_device) = match Phi3::from_gguf(false, gguf_content, &mut file, &device) {
@@ -94,6 +108,7 @@ impl LoadedModel {
                 let err_msg = format!("{:?}", e);
                 if err_msg.contains("OUT_OF_MEMORY") || err_msg.contains("out of memory") || err_msg.contains("OutOfMemory") {
                     tracing::warn!("⚠ Mémoire GPU insuffisante pour {} — basculement sur CPU", model_name);
+                    tracing::info!("💡 Conseil : Pour utiliser le GPU, essayez un modèle plus léger (Q4_K_M au lieu de Q6_K)");
                     // Relire le fichier pour un second essai
                     let mut file2 = std::fs::File::open(model_path)?;
                     let gguf2 = candle_core::quantized::gguf_file::Content::read(&mut file2)
@@ -102,10 +117,33 @@ impl LoadedModel {
                         .context("Échec du chargement sur CPU également")?;
                     (cpu_model, Device::Cpu)
                 } else {
-                    return Err(e).context("Erreur de chargement des poids du modèle");
+                    let mut hint = String::from("Erreur de chargement des poids du modèle");
+                    
+                    if err_msg.contains("tensor") || err_msg.contains("shape") {
+                        hint.push_str("\n💡 Conseil : Incompatibilité de structure du modèle. Vérifiez :");
+                        hint.push_str("\n   • Que le modèle est compatible Phi-3");
+                        hint.push_str("\n   • Que la version de Candle est à jour");
+                    } else if err_msg.contains("device") {
+                        hint.push_str("\n💡 Conseil : Problème de device GPU. Essayez :");
+                        hint.push_str("\n   • Vérifier les drivers GPU");
+                        hint.push_str("\n   • Basculer en mode CPU");
+                    }
+                    
+                    return Err(anyhow::anyhow!("{}: {:?}", hint, e));
                 }
             }
-            Err(e) => return Err(e).context("Erreur de chargement des poids du modèle"),
+            Err(e) => {
+                let err_msg = format!("{:?}", e);
+                let mut hint = String::from("Erreur de chargement des poids du modèle");
+                
+                if err_msg.contains("allocation") || err_msg.contains("memory") {
+                    hint.push_str("\n💡 Conseil : Mémoire système insuffisante. Essayez :");
+                    hint.push_str("\n   • Fermer d'autres applications");
+                    hint.push_str("\n   • Utiliser un modèle quantifié plus léger");
+                }
+                
+                return Err(anyhow::anyhow!("{}: {:?}", hint, e));
+            }
         };
 
         let size_mb = std::fs::metadata(model_path)?.len() / 1_048_576;

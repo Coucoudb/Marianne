@@ -33,13 +33,15 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let data_dir = cli
-        .data_dir
-        .unwrap_or_else(|| {
-            dirs::data_dir()
-                .expect("Impossible de trouver le répertoire de données")
-                .join("marianne")
-        });
+    let data_dir = match cli.data_dir {
+        Some(path) => path,
+        None => dirs::data_dir()
+            .ok_or_else(|| anyhow::anyhow!(
+                "Impossible de déterminer le répertoire de données système.\n\
+                 💡 Conseil : Spécifiez explicitement --data-dir=/chemin/vers/donnees"
+            ))?
+            .join("marianne"),
+    };
 
     std::fs::create_dir_all(&data_dir)?;
     std::fs::create_dir_all(data_dir.join("models"))?;
@@ -50,6 +52,13 @@ async fn main() -> Result<()> {
     tracing::info!("Marianne Server — données dans : {:?}", data_dir);
 
     let core_state = AppState::new(data_dir);
+
+    // Installation et configuration automatique au démarrage
+    if let Err(e) = marianne_core::setup::ensure_model_ready(&core_state).await {
+        tracing::error!("❌ Échec de l'initialisation automatique : {:#}", e);
+        tracing::warn!("Le serveur démarrera sans modèle chargé. Utilisez POST /api/v1/models/setup pour réessayer.");
+    }
+
     let app_state = state::ServerState::new(core_state);
 
     let app = routes::build_router(app_state);
