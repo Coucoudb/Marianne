@@ -28,8 +28,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: marianne/marianne-web/package-lock.json
+          # Désactivé temporairement pour forcer un build propre
+          # cache: 'npm'
+          # cache-dependency-path: marianne/marianne-web/package-lock.json
 
       - name: Install deps
         working-directory: marianne/marianne-web
