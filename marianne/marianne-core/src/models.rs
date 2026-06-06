@@ -37,6 +37,18 @@ pub fn save_installed_models(data_dir: &Path, models: &[InstalledModel]) -> anyh
     Ok(())
 }
 
+/// Supprimer un modèle du registre et du disque
+pub fn remove_installed_model(data_dir: &Path, model_id: &str) -> anyhow::Result<()> {
+    let mut installed = load_installed_models(data_dir);
+    if let Some(pos) = installed.iter().position(|m| m.id == model_id) {
+        let model = installed.remove(pos);
+        let file_path = data_dir.join("models").join(&model.filename);
+        let _ = std::fs::remove_file(file_path); // Ignorer l'erreur si le fichier n'existe pas
+        save_installed_models(data_dir, &installed)?;
+    }
+    Ok(())
+}
+
 /// Résoudre le nom de fichier GGUF à partir de l'identifiant du modèle sélectionné.
 /// Cherche d'abord dans le registre local, puis utilise un fallback de noms connus.
 pub fn resolve_model_filename(data_dir: &Path, selected_model: &str) -> String {

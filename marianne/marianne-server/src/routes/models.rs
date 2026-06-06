@@ -149,6 +149,70 @@ pub async fn download_model(
     }))
 }
 
+/// POST /api/v1/models/replace — Télécharge et remplace le modèle actif
+pub async fn replace_model(
+    State(server): State<ServerState>,
+    Json(req): Json<DownloadRequest>,
+) -> Result<Json<DownloadResponse>, AppError> {
+    let data_dir = server.core.data_dir.clone();
+    let repo_id = req.repo_id.clone();
+    let filename = req.filename.clone();
+    let name = req.name.clone();
+    let server_core = server.core.clone();
+
+    // Lancer le téléchargement en arrière-plan
+    tokio::spawn(async move {
+        match download_model_from_huggingface(&data_dir, &repo_id, &filename, &name, |_| {}).await {
+            Ok(model_id) => {
+                tracing::info!("✅ Modèle {} téléchargé avec succès. Remplacement en cours...", model_id);
+                
+                // Mettre à jour le profil
+                let old_model_id = {
+                    let mut profile = server_core.profile.lock();
+                    let old_id = profile.selected_model.clone();
+                    profile.selected_model = model_id.clone();
+                    let _ = profile.save(&data_dir);
+                    old_id
+                };
+
+                // Recharger le modèle en mémoire (setup complet)
+                let _ = marianne_core::setup::ensure_model_ready(&server_core).await;
+
+                // Supprimer l'ancien modèle s'il est différent
+                if old_model_id != model_id && old_model_id != "phi-3-mini-q4" {
+                    tracing::info!("🗑️ Suppression de l'ancien modèle : {}", old_model_id);
+                    let _ = marianne_core::models::remove_installed_model(&data_dir, &old_model_id);
+                }
+            }
+            Err(e) => {
+                tracing::error!("❌ Échec du téléchargement : {}", e);
+            }
+        }
+    });
+
+    let model_id = format!(
+        "{}_{}",
+        req.repo_id.replace('/', "_"),
+        req.filename.trim_end_matches(".gguf")
+    );
+
+    Ok(Json(DownloadResponse {
+        status: "downloading_and_replacing".to_string(),
+        model_id,
+    }))
+}
+
+/// DELETE /api/v1/models/:id — Supprime un modèle
+pub async fn delete_model(
+    State(server): State<ServerState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    marianne_core::models::remove_installed_model(&server.core.data_dir, &id)
+        .map_err(|e| AppError::Internal(format!("Impossible de supprimer le modèle : {}", e)))?;
+        
+    Ok(Json(serde_json::json!({ "status": "deleted" })))
+}
+
 /// POST /api/v1/models/load — Charge un modèle téléchargé en mémoire
 pub async fn load_model(
     State(server): State<ServerState>,

@@ -51,7 +51,14 @@
   let profileLoading = false;
   let profileSaved = false;
 
-  // System info state
+  // Custom model download state
+  let downloadRepo = '';
+  let downloadFilename = '';
+  let downloadName = '';
+  let isDownloading = false;
+  let downloadInterval: any;
+
+  // Server system info
   let systemInfo: SystemInfo | null = null;
 
   // Models state
@@ -148,14 +155,46 @@
     }
   }
 
-  async function loadModelsStatus() {
-    modelsLoading = true;
+  async function loadModelsStatus(showLoading = true) {
+    if (showLoading) modelsLoading = true;
     try {
       modelsStatus = await apiClient.getModelsStatus();
+      if (isDownloading && modelsStatus.loaded_model?.name === downloadName) {
+         isDownloading = false;
+         if (downloadInterval) clearInterval(downloadInterval);
+         downloadRepo = '';
+         downloadFilename = '';
+         downloadName = '';
+      }
     } catch (err) {
       console.error('Failed to load models status:', err);
     } finally {
-      modelsLoading = false;
+      if (showLoading) modelsLoading = false;
+    }
+  }
+
+  async function handleReplaceModel() {
+    if (!downloadRepo || !downloadFilename || !downloadName) return;
+    try {
+      isDownloading = true;
+      await apiClient.replaceModel(downloadRepo, downloadFilename, downloadName);
+      
+      downloadInterval = setInterval(async () => {
+        await loadModelsStatus(false);
+      }, 5000);
+    } catch (err: any) {
+      errorMessage = err.message || 'Erreur lors du téléchargement du modèle';
+      isDownloading = false;
+    }
+  }
+
+  async function handleDeleteModel(modelId: string) {
+    if (!confirm("Voulez-vous vraiment supprimer ce modèle du disque ?")) return;
+    try {
+      await apiClient.deleteModel(modelId);
+      await loadModelsStatus();
+    } catch (err: any) {
+      errorMessage = err.message || 'Erreur lors de la suppression';
     }
   }
 
@@ -584,18 +623,50 @@
                   {#if modelsStatus.loaded_model?.id === model.id}
                     <span class="model-badge loaded">Actif</span>
                   {:else}
-                    <button
-                      class="primary"
-                      style="padding: 0.25rem 0.75rem; font-size: 0.75rem;"
-                      disabled={modelLoadingId !== null}
-                      on:click={() => handleLoadModel(model.id)}
-                    >
-                      {modelLoadingId === model.id ? 'Chargement...' : 'Charger'}
-                    </button>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                      <button
+                        class="primary"
+                        style="padding: 0.25rem 0.75rem; font-size: 0.75rem;"
+                        disabled={modelLoadingId !== null}
+                        on:click={() => handleLoadModel(model.id)}
+                      >
+                        {modelLoadingId === model.id ? 'Chargement...' : 'Charger'}
+                      </button>
+                      <button
+                        style="padding: 0.25rem 0.75rem; font-size: 0.75rem; background: var(--surface-3); border: 1px solid #ff4444; color: #ff4444; cursor: pointer; border-radius: 4px;"
+                        on:click={() => handleDeleteModel(model.id)}
+                      >
+                        Supprimer
+                      </button>
+                    </div>
                   {/if}
                 </div>
               {/each}
             {/if}
+
+            <div class="section-label" style="margin-top: var(--spacing-xl);">📥 Nouveau Modèle HuggingFace</div>
+            <div style="background: var(--surface-2); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
+              <div class="form-group" style="margin-bottom: 0.8rem;">
+                <label>Repo ID HuggingFace</label>
+                <input bind:value={downloadRepo} type="text" placeholder="ex: bartowski/Llama-3.2-1B-Instruct-GGUF" disabled={isDownloading} />
+              </div>
+              <div class="form-group" style="margin-bottom: 0.8rem;">
+                <label>Nom exact du fichier</label>
+                <input bind:value={downloadFilename} type="text" placeholder="ex: Llama-3.2-1B-Instruct-Q4_K_M.gguf" disabled={isDownloading} />
+              </div>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label>Nom d'affichage</label>
+                <input bind:value={downloadName} type="text" placeholder="ex: Llama 3.2 1B (Rapide)" disabled={isDownloading} />
+              </div>
+              <button 
+                class="primary" 
+                style="width: 100%; padding: 0.6rem; text-align: center;" 
+                on:click={handleReplaceModel} 
+                disabled={isDownloading || !downloadRepo || !downloadFilename || !downloadName}
+              >
+                {isDownloading ? '⏳ Téléchargement en cours... (ne fermez pas)' : 'Télécharger et Remplacer l\'Actif'}
+              </button>
+            </div>
 
             <div class="button-group" style="margin-top: var(--spacing-xl);">
               <button on:click={loadModelsStatus}>

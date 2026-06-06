@@ -42,6 +42,8 @@ fn api_routes() -> Router<ServerState> {
         .route("/models/download", axum::routing::post(models::download_model))
         .route("/models/load", axum::routing::post(models::load_model))
         .route("/models/setup", axum::routing::post(models::setup_model))
+        .route("/models/replace", axum::routing::post(models::replace_model))
+        .route("/models/:id", axum::routing::delete(models::delete_model))
         .nest("/workspace", workspace::router())
 }
 

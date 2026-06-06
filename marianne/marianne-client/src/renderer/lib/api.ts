@@ -296,6 +296,30 @@ export class ApiClient {
   }
 
   /**
+   * POST /api/v1/models/replace - Download a model and replace the current one
+   */
+  async replaceModel(repoId: string, filename: string, name: string): Promise<{ status: string; model_id: string }> {
+    const body: DownloadRequest = {
+      repo_id: repoId,
+      filename,
+      name
+    };
+
+    const res = await this.fetch('/api/v1/models/replace', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    return res.json();
+  }
+
+  /**
+   * DELETE /api/v1/models/:id - Delete a downloaded model
+   */
+  async deleteModel(modelId: string): Promise<void> {
+    await this.fetch(`/api/v1/models/${modelId}`, { method: 'DELETE' });
+  }
+
+  /**
    * POST /api/v1/models/load - Load a downloaded model into memory
    * 
    * @param modelId - Model ID to load
