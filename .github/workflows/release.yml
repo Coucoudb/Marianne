@@ -27,9 +27,9 @@ jobs:
           fi
 
   # ── Call build workflows ─────────────────────────────────────────────────
-  build-desktop:
+  build-client:
     needs: prepare
-    uses: ./.github/workflows/build-desktop.yml
+    uses: ./.github/workflows/build-client.yml
     with:
       version: ${{ needs.prepare.outputs.version }}
 
@@ -38,16 +38,11 @@ jobs:
     uses: ./.github/workflows/build-server.yml
     with:
       version: ${{ needs.prepare.outputs.version }}
-
-  build-web:
-    needs: prepare
-    uses: ./.github/workflows/build-web.yml
-    with:
       version: ${{ needs.prepare.outputs.version }}
 
   # ── Create GitHub Release ────────────────────────────────────────────────
   release:
-    needs: [prepare, build-desktop, build-server, build-web]
+    needs: [prepare, build-client, build-server]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -67,38 +62,30 @@ jobs:
           body: |
             ## 🇫🇷 Marianne AI ${{ github.ref_name }}
 
-            Assistant administratif français 100% local avec IA embarquée.
+            Assistant administratif français. Architecture client-serveur avec IA déportée sur le serveur.
 
             ---
 
-            ### 🖥️ Application Desktop (Tauri)
+            ### 🖥️ Application Client (Electron)
 
-            Interface graphique complète — le modèle IA (~2.2 Go) est téléchargé automatiquement au premier lancement.
+            Client desktop qui se connecte au serveur marianne-server. Accès aux fichiers locaux et exécution de commandes.
 
-            **Choisissez la variante adaptée à votre matériel :**
+            | Système | Artefact |
+            |---------|----------|
+            | **Windows** | `marianne-client-windows-x64` (`.exe`) |
+            | **Linux** | `marianne-client-linux-x64` (`.AppImage` / `.deb` / `.rpm`) |
+            | **macOS** | `marianne-client-macos-arm64` (`.dmg`) |
 
-            | Système | Variante | Accélération GPU | Artefact |
-            |---------|----------|------------------|----------|
-            | **Windows** | CPU | ❌ CPU uniquement | `marianne-desktop-windows-x64-cpu` (`.msi` / `.exe`) |
-            | **Windows** | CUDA | ✅ GPU NVIDIA (RTX, GTX) | `marianne-desktop-windows-x64-cuda` (`.msi` / `.exe`) |
-            | **Windows** | Vulkan | ✅ GPU universel (NVIDIA, AMD, Intel) | `marianne-desktop-windows-x64-vulkan` (`.msi` / `.exe`) |
-            | **Linux** | CPU | ❌ CPU uniquement | `marianne-desktop-linux-x64-cpu` (`.deb` / `.AppImage`) |
-            | **Linux** | CUDA | ✅ GPU NVIDIA (RTX, GTX) | `marianne-desktop-linux-x64-cuda` (`.deb` / `.AppImage`) |
-            | **Linux** | Vulkan | ✅ GPU universel (NVIDIA, AMD, Intel) | `marianne-desktop-linux-x64-vulkan` (`.deb` / `.AppImage`) |
-            | **macOS** | CPU | ❌ CPU uniquement | `marianne-desktop-macos-arm64-cpu` (`.dmg`) |
-            | **macOS** | Metal | ✅ GPU Apple Silicon (M1/M2/M3) | `marianne-desktop-macos-arm64-metal` (`.dmg`) |
-
-            **Quelle variante choisir ?**
-            - **NVIDIA RTX/GTX** → CUDA (meilleure performance) ou Vulkan (fallback)
-            - **AMD/Intel** → Vulkan
-            - **Apple Silicon** → Metal
-            - **Pas de GPU ou CPU puissant** → CPU
+            **Configuration :**
+            - Au premier lancement, configurez l'URL du serveur marianne-server
+            - Par défaut : `http://localhost:3000`
+            - Pour un serveur distant : `http://votre-serveur:3000`
 
             ---
 
             ### ⚙️ Serveur HTTP (`marianne-server`)
 
-            Binaire standalone exposant l'API REST + SSE. Idéal pour machine dédiée, NAS ou serveur distant.
+            Serveur backend avec IA embarquée. Peut tourner sur une machine dédiée, un NAS, ou un serveur distant.
 
             **Choisissez la variante adaptée à votre matériel :**
 
@@ -113,6 +100,12 @@ jobs:
             | **macOS** | CPU | ❌ CPU uniquement | `marianne-server-macos-arm64-cpu.tar.gz` |
             | **macOS** | Metal | ✅ GPU Apple Silicon | `marianne-server-macos-arm64-metal.tar.gz` |
 
+            **Quelle variante choisir ?**
+            - **NVIDIA RTX/GTX** → CUDA (meilleure performance) ou Vulkan (fallback)
+            - **AMD/Intel** → Vulkan
+            - **Apple Silicon** → Metal
+            - **Pas de GPU ou CPU puissant** → CPU
+
             ```bash
             # Lancer le serveur (écoute 127.0.0.1:3000 par défaut)
             ./marianne-server
@@ -126,46 +119,13 @@ jobs:
 
             ---
 
-            ### 🌐 Client Web (`marianne-web`)
-
-            Fichiers statiques Svelte à déployer face au serveur HTTP.
-            Décompresser l'archive et servir le dossier `dist/` via nginx, Caddy ou tout autre serveur HTTP.
-
-            | Artefact | Contenu |
-            |---|---|
-            | `marianne-web-client` | `dist/` — HTML/CSS/JS statiques |
-
-            ```nginx
-            # Exemple nginx
-            server {
-                listen 80;
-                root /var/www/marianne/dist;
-                location / { try_files $uri /index.html; }
-            }
-            ```
-
-            **Déploiement avec Docker** :
-            ```bash
-            # Extraire l'archive
-            unzip marianne-web-client-*.zip
-
-            # Lancer nginx avec le dossier dist/
-            docker run --name marianne-web \
-              -p 8080:80 \
-              -v "$(pwd)/dist:/usr/share/nginx/html:ro" \
-              -d nginx
-
-            # Accéder à l'application : http://localhost:8080
-            ```
-
-            ---
-
             ### ✨ Fonctionnalités
-            - LLM embarqué (modèle téléchargé au premier lancement)
+            - **Architecture client-serveur** : serveur puissant + clients légers
+            - LLM embarqué côté serveur (modèle téléchargé au premier lancement)
             - RAG hybride : base vectorielle LanceDB + graphe de connaissances
             - Corpus juridique français (CAF, URSSAF, retraite, logement, travail…)
             - Recherche web sur sources officielles en temps réel
-            - Analyse de documents PDF/TXT/MD
-            - **Accélération GPU disponible** : CUDA (NVIDIA), Vulkan (universel), Metal (Apple Silicon), ou CPU uniquement
+            - Analyse de documents PDF/TXT/MD via le client
+            - **Accélération GPU côté serveur** : CUDA (NVIDIA), Vulkan (universel), Metal (Apple Silicon), ou CPU uniquement
           files: artifacts/**/*
 

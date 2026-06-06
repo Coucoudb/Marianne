@@ -1,0 +1,109 @@
+name: Build Client (Electron)
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 1.0.0)'
+        required: false
+        type: string
+        default: '0.0.0'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 1.0.0)'
+        required: false
+        type: string
+        default: '0.0.0'
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  build-client:
+    name: Client (${{ matrix.platform-name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Windows ──────────────────────────────────────────────────────
+          - platform: windows-latest
+            platform-name: windows-x64
+
+          # ── Linux ────────────────────────────────────────────────────────
+          - platform: ubuntu-latest
+            platform-name: linux-x64
+
+          # ── macOS ────────────────────────────────────────────────────────
+          - platform: macos-latest
+            platform-name: macos-arm64
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: marianne/marianne-client/package-lock.json
+
+      - name: Set version
+        shell: bash
+        working-directory: marianne/marianne-client
+        run: |
+          VERSION="${{ inputs.version }}"
+          npm version "$VERSION" --no-git-tag-version
+
+      - name: Install dependencies
+        working-directory: marianne/marianne-client
+        run: npm ci
+
+      - name: Build application
+        working-directory: marianne/marianne-client
+        run: npm run build
+
+      # ── Package ──────────────────────────────────────────────────────────
+      - name: Package (Windows)
+        if: matrix.platform == 'windows-latest'
+        working-directory: marianne/marianne-client
+        run: npm run package:win
+
+      - name: Package (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        working-directory: marianne/marianne-client
+        run: npm run package:linux
+
+      - name: Package (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        working-directory: marianne/marianne-client
+        run: npm run package:mac
+
+      # ── Upload ───────────────────────────────────────────────────────────
+      - name: Upload (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: marianne-client-${{ matrix.platform-name }}
+          path: |
+            marianne/marianne-client/release/*.exe
+            marianne/marianne-client/release/*.msi
+
+      - name: Upload (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: marianne-client-${{ matrix.platform-name }}
+          path: |
+            marianne/marianne-client/release/*.AppImage
+            marianne/marianne-client/release/*.deb
+            marianne/marianne-client/release/*.rpm
+
+      - name: Upload (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        uses: actions/upload-artifact@v4
+        with:
+          name: marianne-client-${{ matrix.platform-name }}
+          path: marianne/marianne-client/release/*.dmg
