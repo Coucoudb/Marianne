@@ -161,17 +161,22 @@ jobs:
           }
 
       # ── Build ────────────────────────────────────────────────────────────
-      - name: Build marianne-server
+      - name: Build marianne-server (Linux)
+        if: matrix.platform == 'ubuntu-latest'
         shell: bash
         working-directory: marianne
         env:
           RUST_BACKTRACE: '1'
-        run: |
-          if [ "${{ matrix.platform }}" = "ubuntu-latest" ]; then
-            export CC=gcc
-            export CXX=g++
-          fi
-          cargo build -p marianne-server --release --target ${{ matrix.target }} --no-default-features --features ${{ matrix.features }}
+          CC: gcc
+          CXX: g++
+        run: cargo build -p marianne-server --release --target ${{ matrix.target }} --no-default-features --features ${{ matrix.features }}
+
+      - name: Build marianne-server (Windows / macOS)
+        if: matrix.platform != 'ubuntu-latest'
+        working-directory: marianne
+        env:
+          RUST_BACKTRACE: '1'
+        run: cargo build -p marianne-server --release --target ${{ matrix.target }} --no-default-features --features ${{ matrix.features }}
 
       # ── Package ──────────────────────────────────────────────────────────
       - name: Package (Windows)
