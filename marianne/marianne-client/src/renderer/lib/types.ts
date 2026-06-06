@@ -141,10 +141,10 @@ export interface LoadRequest {
 // ─── Chat API ───────────────────────────────────────────────────────────────
 
 export interface ChatRequest {
-  user_message: string;
+  message: string;
   conversation_id?: string | null;
-  use_rag?: boolean;
-  use_web_search?: boolean;
+  max_tokens?: number;
+  agent_id?: string | null;
 }
 
 export interface StreamTokenEvent {

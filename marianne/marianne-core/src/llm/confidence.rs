@@ -4,134 +4,11 @@
 /// Seuil de base de confiance pour ne pas déclencher la recherche web
 const BASE_CONFIDENCE_THRESHOLD: f32 = 0.45;
 
-/// Message de refus pour les questions hors sujet
-pub const OFF_TOPIC_RESPONSE: &str = "Je suis Marianne, spécialisée dans l'administration et les droits en France. Cette question ne fait pas partie de mes compétences. Posez-moi une question sur vos droits, démarches ou obligations en France ! 🇫🇷";
+/// Message de refus pour les questions hors sujet (Désactivé)
+pub const OFF_TOPIC_RESPONSE: &str = "Je suis un agent IA, comment puis-je vous aider ?";
 
-/// Détecter si une question est hors sujet (non liée à la vie en France)
-/// Retourne true si la question est interdite et ne doit pas être envoyée au LLM
-///
-/// Double logique :
-/// 1. Blacklist : mots-clés explicitement interdits → bloqué sauf si ancrage France
-/// 2. Whitelist : si aucun terme admin/France détecté → bloqué (question trop éloignée)
-pub fn is_off_topic(query: &str) -> bool {
-    let q = query.to_lowercase();
-
-    // Laisser passer les conversationnelles (bonjour, merci, etc.)
-    if is_conversational(query) {
-        return false;
-    }
-
-    // Questions trop courtes pour être analysées → laisser passer
-    if q.len() < 12 {
-        return false;
-    }
-
-    // ─── Blacklist : sujets explicitement interdits ────────────────────────
-    let blocked_keywords = [
-        // Programmation / informatique (technique pure)
-        "coder", "programmer", "python", "javascript", "java ",
-        "rust ", "html", "css", "sql", "api ", "github", "docker", "linux",
-        "variable", "fonction", "class ", "debug",
-        "compile", "framework", "frontend", "backend", "serveur web",
-        "base de données", "machine learning",
-        // Hacking / cybersécurité offensive
-        "hack", "hacker", "pirater", "phishing", "exploit", "crack",
-        "bruteforce", "ddos", "malware", "virus informatique",
-        "ransomware", "injection sql", "faille de sécurité",
-        // Cuisine / recettes
-        "recette", "cuisiner", "ingrédient", "gâteau", "pâtisserie",
-        "cheese cake", "cheesecake", "pizza", "dessert", "cuisson",
-        "four à ", "moule à ", "pâte à ",
-        // Jeux / divertissement
-        "jeu vidéo", "playstation", "xbox", "nintendo", "fortnite", "minecraft",
-        "film", "série tv", "netflix", "manga", "anime",
-        // Sciences / maths pures
-        "équation", "intégrale", "dérivée", "théorème", "physique quantique",
-        "chimie organique", "atome", "molécule",
-        // Investissement / spéculation
-        "bitcoin", "ethereum", "crypto-monnaie", "cryptomonnaie", "trading",
-        "spéculer", "nft",
-    ];
-
-    // ─── Whitelist : ancrage admin / vie en France ─────────────────────────
-    let france_anchors = [
-        // Géographie / identité France
-        "france", "français", "française", "république", "état",
-        // Juridique
-        "droit", "loi", "décret", "article", "code du", "ordonnance",
-        "légal", "juridique", "réglementaire", "obligation",
-        "normatif", "normative", "législat", "abroger", "abrogé", "abrogation",
-        "promulguer", "promulgation", "jurisprudence", "contentieux",
-        "constitutionnel", "règlement", "circulaire", "arrêté",
-        "officiel", "gazette", "journal officiel",
-        // Administration
-        "administration", "démarche", "formulaire", "cerfa", "dossier",
-        "demande de", "procédure", "réclamation", "attestation",
-        "service public", "fonctionnaire", "agent public", "collectivité",
-        "ministère", "secrétariat", "autorité", "commission",
-        // Organismes
-        "impôt", "taxe", "fiscal", "caf", "rsa", "apl",
-        "urssaf", "ameli", "cpam", "cnav", "ants", "préfecture", "mairie",
-        "pôle emploi", "france travail", "sécurité sociale", "trésor public",
-        // Travail
-        "travail", "emploi", "contrat", "licenciement", "congé", "chômage",
-        "salaire", "smic", "cdi", "cdd", "intérim", "employeur", "salarié",
-        // Logement
-        "locataire", "propriétaire", "bail", "loyer", "logement", "hlm",
-        "expulsion", "préavis", "caution", "état des lieux",
-        // Documents
-        "carte d'identité", "passeport", "permis", "carte grise",
-        "acte de naissance", "livret de famille", "extrait de casier",
-        // Famille / état civil
-        "mariage", "pacs", "divorce", "naissance", "décès",
-        "garde", "pension alimentaire", "autorité parentale",
-        // Succession / patrimoine
-        "héritage", "succession", "donation", "notaire", "testament",
-        // Social / santé
-        "allocat", "aide sociale", "prime", "bourse", "handicap", "aah", "mdph",
-        "maladie", "arrêt", "médecin", "hôpital", "mutuelle", "complémentaire",
-        "retraite", "pension", "invalidité",
-        // Justice
-        "tribunal", "justice", "recours", "contestation", "plainte",
-        "amende", "contravention", "infraction", "avocat", "huissier",
-        // Consommation
-        "consommation", "litige", "arnaque", "garantie",
-        // Immigration
-        "nationalité", "naturalisation", "titre de séjour", "visa",
-        // Éducation
-        "inscription", "scolarité", "école", "université",
-        // Courrier
-        "courrier", "lettre officielle", "lettre de", "recommandé",
-        // Assurance
-        "assurance", "sinistre", "indemnisation",
-        // Vie quotidienne / société
-        "jeune", "jeunes", "enfant", "parent", "famille",
-        "citoyen", "citoyenne", "citoyenneté",
-        "numérique", "internet", "données personnelles", "rgpd", "cnil",
-        "intelligence artificielle", " ia ", "l'ia",
-        "régulation", "réglementation", "encadrement",
-        "société", "sociétal", "social",
-        "mineur", "majeur", "adolescent",
-        "éducation", "enseignement", "formation",
-        // Marianne
-        "marianne",
-    ];
-
-    let has_blocked = blocked_keywords.iter().any(|kw| q.contains(kw));
-    let has_anchor = france_anchors.iter().any(|a| q.contains(a));
-
-    // Règle 1 : mot-clé interdit ET pas d'ancrage France → bloqué
-    if has_blocked && !has_anchor {
-        return true;
-    }
-
-    // Règle 2 : aucun ancrage France sur une question très longue → bloqué
-    // Seulement pour les questions clairement hors sujet (> 80 caractères sans aucun mot-clé lié à la France)
-    // Les questions courtes/moyennes sont laissées au LLM qui sait refuser poliment
-    if !has_anchor && q.len() > 80 {
-        return true;
-    }
-
+/// L'IA est désormais généraliste : aucune question n'est hors sujet.
+pub fn is_off_topic(_query: &str) -> bool {
     false
 }
 
@@ -140,13 +17,8 @@ pub fn is_conversational(query: &str) -> bool {
     let q = query.to_lowercase();
     let q_trimmed = q.trim();
 
-    // Messages très courts (< 20 caractères) et non-question → conversationnel
-    if q_trimmed.len() < 20 && !q_trimmed.contains("droit")
-        && !q_trimmed.contains("loi") && !q_trimmed.contains("aide")
-        && !q_trimmed.contains("caf") && !q_trimmed.contains("rsa")
-        && !q_trimmed.contains("impôt") && !q_trimmed.contains("travail")
-    {
-        // Vérifier que c'est bien conversationnel et pas un mot-clé admin isolé
+    // Messages très courts (< 20 caractères) -> souvent conversationnel
+    if q_trimmed.len() < 20 {
         let conv_short = [
             "bonjour", "salut", "coucou", "hello", "bonsoir", "hey",
             "merci", "ok", "oui", "non", "d'accord", "parfait", "super",
@@ -165,7 +37,6 @@ pub fn is_conversational(query: &str) -> bool {
         "bonne journée", "bonne soirée",
     ];
     if greetings.iter().any(|g| q_trimmed.starts_with(g)) && q_trimmed.len() < 80 {
-        // Sauf si le reste contient une vraie question admin
         let after = greetings.iter()
             .filter_map(|g| q_trimmed.strip_prefix(g))
             .next()
@@ -187,18 +58,16 @@ pub fn is_conversational(query: &str) -> bool {
         return true;
     }
 
-    // Questions méta sur Marianne
+    // Questions méta sur l'IA
     let meta_patterns = [
         "qui es-tu",
         "qui es tu",
         "tu es qui",
-        "c'est quoi marianne",
+        "c'est quoi ton",
         "que peux-tu faire",
         "que peux tu faire",
         "qu'est-ce que tu peux",
         "qu'est ce que tu peux",
-        "qu'est-ce que je peux te",
-        "qu'est ce que je peux te",
         "quelles questions",
         "quel type de question",
         "comment tu fonctionne",
@@ -216,11 +85,7 @@ pub fn is_conversational(query: &str) -> bool {
         "ton rôle",
         "ton role",
         "tu t'appelles",
-        "tu t'appelle",
         "quel est ton nom",
-        "ton nom",
-        "c'est quoi ton",
-        "tu es quoi",
     ];
     if meta_patterns.iter().any(|p| q.contains(p)) {
         return true;
@@ -231,7 +96,7 @@ pub fn is_conversational(query: &str) -> bool {
         "merci", "au revoir", "à bientôt", "a bientot", "ok merci",
         "parfait", "super", "génial", "d'accord", "entendu", "compris",
         "c'est noté", "c'est note", "top", "nickel", "formidable",
-        "bonne journée", "bonne soirée", "bye",
+        "bye",
     ];
     if closings.iter().any(|c| q_trimmed.starts_with(c)) && q_trimmed.len() < 60 {
         return true;
@@ -240,12 +105,12 @@ pub fn is_conversational(query: &str) -> bool {
     false
 }
 
-/// Évaluer la confiance à partir des résultats RAG avec seuil adaptatif par catégorie
+/// Évaluer la confiance à partir des résultats RAG
 pub fn evaluate_rag_confidence(
     rag_scores: &[f32],
     rag_context_len: usize,
     query_len: usize,
-    category: &str,
+    _category: &str,
 ) -> ConfidenceResult {
     if rag_scores.is_empty() {
         return ConfidenceResult {
@@ -277,14 +142,13 @@ pub fn evaluate_rag_confidence(
         confidence += ratio * 0.15;
     }
 
-    let should_search_web = confidence < adaptive_threshold(category);
+    let should_search_web = confidence < BASE_CONFIDENCE_THRESHOLD;
 
     let reason = if should_search_web {
         format!(
-            "Confiance faible ({:.0}%, seuil {:.0}% pour {}) — recherche web recommandée",
+            "Confiance faible ({:.0}%, seuil {:.0}%) — recherche web recommandée",
             confidence * 100.0,
-            adaptive_threshold(category) * 100.0,
-            category,
+            BASE_CONFIDENCE_THRESHOLD * 100.0,
         )
     } else {
         format!("Confiance suffisante ({:.0}%)", confidence * 100.0)
@@ -302,22 +166,6 @@ pub struct ConfidenceResult {
     pub score: f32,
     pub reason: String,
     pub should_search_web: bool,
-}
-
-/// Seuil de confiance adaptatif par catégorie
-/// Les catégories avec un bon corpus local ont un seuil plus élevé (plus exigeant)
-/// Les catégories moins couvertes ont un seuil plus bas (recherche web plus facile)
-fn adaptive_threshold(category: &str) -> f32 {
-    match category {
-        // Bien couvert par le corpus → seuil élevé, on fait confiance au local
-        "caf" | "droit_travail" | "logement" | "chomage" => BASE_CONFIDENCE_THRESHOLD + 0.05,
-        // Moyennement couvert → seuil standard
-        "impots" | "sante" | "retraite" | "urssaf" | "identite" | "recours" => BASE_CONFIDENCE_THRESHOLD,
-        // Peu couvert → seuil bas, recherche web plus fréquente
-        "renovation" | "consommation" | "discrimination" | "institutions" | "statistiques" => BASE_CONFIDENCE_THRESHOLD - 0.10,
-        // Catégorie inconnue → seuil standard
-        _ => BASE_CONFIDENCE_THRESHOLD,
-    }
 }
 
 /// Détecter si l'utilisateur reformule sa question (signe d'insatisfaction)
@@ -370,47 +218,7 @@ pub fn detect_satisfaction(message: &str) -> bool {
     positive.iter().any(|p| q.contains(p))
 }
 
-/// Déterminer la catégorie de la question pour orienter la recherche web
-pub fn detect_category(query: &str) -> &'static str {
-    let q = query.to_lowercase();
-    
-    if q.contains("caf") || q.contains("allocation") || q.contains("apl") || q.contains("rsa") || q.contains("prime d'activité") {
-        "caf"
-    } else if q.contains("ameli") || q.contains("sécu") || q.contains("maladie") || q.contains("médecin") || q.contains("carte vitale") {
-        "sante"
-    } else if q.contains("urssaf") || q.contains("cotisation") || q.contains("auto-entrepreneur") || q.contains("micro") {
-        "urssaf"
-    } else if q.contains("chômage") || q.contains("chomage") || q.contains("pôle emploi") || q.contains("france travail") {
-        "chomage"
-    } else if q.contains("impôt") || q.contains("impot") || q.contains("taxe") || q.contains("fiscal") || q.contains("déclaration de revenus") {
-        "impots"
-    } else if q.contains("amende") || q.contains("contravention") || q.contains("radar") || q.contains("pv") {
-        "amendes"
-    } else if q.contains("passeport") || q.contains("carte d'identité") || q.contains("permis de conduire") || q.contains("carte grise") {
-        "identite"
-    } else if q.contains("travail") || q.contains("licenciement") || q.contains("contrat") || q.contains("cdi") || q.contains("cdd") || q.contains("smic") {
-        "droit_travail"
-    } else if q.contains("rénovation") || q.contains("renovation") || q.contains("maprimerénov") || q.contains("isolation") || q.contains("énergie") {
-        "renovation"
-    } else if q.contains("logement") || q.contains("bail") || q.contains("locataire") || q.contains("propriétaire") || q.contains("loyer") {
-        "logement"
-    } else if q.contains("retraite") || q.contains("pension") || q.contains("cnav") || q.contains("carrière") {
-        "retraite"
-    } else if q.contains("consommation") || q.contains("rappel produit") || q.contains("arnaque") || q.contains("litige") || q.contains("commerçant") {
-        "consommation"
-    } else if q.contains("discrimination") || q.contains("défenseur des droits") || q.contains("harcèlement") {
-        "discrimination"
-    } else if q.contains("surendettement") || q.contains("banque de france") || q.contains("droit au compte") || q.contains("ficp") {
-        "surendettement"
-    } else if q.contains("investissement") || q.contains("arnaque") && q.contains("financ") || q.contains("amf") || q.contains("bourse") || q.contains("crypto") {
-        "fiscalite"
-    } else if q.contains("député") || q.contains("sénateur") || q.contains("assemblée nationale") || q.contains("sénat") || q.contains("loi votée") || q.contains("gouvernement") {
-        "institutions"
-    } else if q.contains("statistique") || q.contains("insee") || q.contains("chiffre") || q.contains("population") || q.contains("inflation") {
-        "statistiques"
-    } else if q.contains("recours") || q.contains("tribunal") || q.contains("justice") || q.contains("plainte") || q.contains("procédure") {
-        "recours"
-    } else {
-        "general"
-    }
+/// Déterminer la catégorie générale de la question (simplifié)
+pub fn detect_category(_query: &str) -> &'static str {
+    "general"
 }

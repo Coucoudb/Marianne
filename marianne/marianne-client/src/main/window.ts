@@ -1,10 +1,7 @@
 import { BrowserWindow, app } from 'electron';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { registerIPCHandlers } from './ipc/index.js';
+import { registerIPCHandlers } from './ipc/index';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 function createSplashWindow(): BrowserWindow {

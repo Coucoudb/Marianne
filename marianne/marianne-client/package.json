@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "description": "Marianne AI - Client desktop Electron",
   "main": "dist/main/index.js",
-  "type": "module",
   "author": {
     "name": "Marianne AI",
     "email": ""

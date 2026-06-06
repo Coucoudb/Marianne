@@ -91,31 +91,48 @@
     errorMessage = '';
 
     try {
-      const result = await window.electronAPI.server.testConnection(serverConfig);
-      connectionStatus = result.success ? 'connected' : 'disconnected';
-      if (!result.success) {
-        errorMessage = result.message || result.error || 'Échec de connexion';
+      if (window.electronAPI) {
+        const result = await window.electronAPI.server.testConnection(serverConfig);
+        connectionStatus = result.success ? 'connected' : 'disconnected';
+        if (!result.success) {
+          errorMessage = result.message || result.error || 'Échec de connexion';
+        }
+      } else {
+        // Fallback for browser testing
+        const url = `${serverConfig.protocol}://${serverConfig.host}:${serverConfig.port}/health`;
+        const response = await fetch(url);
+        if (response.ok) {
+          connectionStatus = 'connected';
+        } else {
+          connectionStatus = 'disconnected';
+          errorMessage = `Erreur HTTP: ${response.status}`;
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       connectionStatus = 'disconnected';
-      errorMessage = 'Impossible de se connecter au serveur';
+      errorMessage = error.message || 'Impossible de se connecter au serveur';
     }
   }
 
   async function saveConfig() {
     try {
-      await window.electronAPI.server.setConfig(serverConfig);
+      if (window.electronAPI) {
+        await window.electronAPI.server.setConfig(serverConfig);
+      } else {
+        localStorage.setItem('serverConfig', JSON.stringify(serverConfig));
+      }
       await apiClient.init();
       await testConnection();
-    } catch (error) {
-      errorMessage = 'Impossible de sauvegarder la configuration';
+    } catch (error: any) {
+      errorMessage = error.message || 'Impossible de sauvegarder la configuration';
     }
   }
 
   // ─── Settings tab data loading ──────────────────────────
   async function loadTabData(tab: string) {
-    if (tab === 'profile' && !profile.updated_at) {
-      await loadProfile();
+    if (tab === 'profile') {
+      if (!profile.updated_at) await loadProfile();
+      if (!systemInfo) await loadSystemInfo();
     }
     if (tab === 'connection') {
       await loadSystemInfo();
@@ -576,9 +593,23 @@
               </div>
               <div class="form-group">
                 <label for="gpu-sel">Sélection GPU</label>
-                <select id="gpu-sel" bind:value={profile.gpu_selection}>
-                  <option value="Auto">Auto</option>
-                  <option value="AllGpus">Tous les GPU</option>
+                <select id="gpu-sel" 
+                  value={typeof profile.gpu_selection === 'object' ? `Specific_${profile.gpu_selection.Specific}` : profile.gpu_selection} 
+                  on:change={(e) => {
+                    const val = e.currentTarget.value;
+                    if (val.startsWith('Specific_')) {
+                      profile.gpu_selection = { Specific: parseInt(val.split('_')[1], 10) };
+                    } else {
+                      profile.gpu_selection = val;
+                    }
+                  }}>
+                  <option value="Auto">Auto (GPU principal)</option>
+                  <option value="AllGpus">Tous les GPU (Multi-GPU)</option>
+                  {#if systemInfo && systemInfo.gpu_devices}
+                    {#each systemInfo.gpu_devices as gpu}
+                      <option value={`Specific_${gpu.index}`}>Forcer {gpu.device_type.toUpperCase()} #{gpu.index} ({gpu.name})</option>
+                    {/each}
+                  {/if}
                 </select>
               </div>
             </div>

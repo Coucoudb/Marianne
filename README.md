@@ -21,12 +21,14 @@ Le tout **sans internet obligatoire**, sans compte, sans données envoyées null
 ## Fonctionnalités
 
 - **LLM local** — Inférence via llama.cpp (accélération GPU CUDA/Vulkan/Metal)
-- **Catalogue de modèles** — Téléchargement depuis HuggingFace, registre local
+- **Modèles Dynamiques** — Téléchargement, gestion et remplacement automatique de modèles GGUF depuis HuggingFace
+- **Système Multi-Agents** — Création d'agents spécialisés, gestion de prompts, d'outils et de bases de connaissances ("Skills")
+- **Outils Agentiques (Function Calling)** — Exécution de commandes (`run_command`), recherche (`grep_search`), modification chirurgicale de fichiers (`replace_file_content`)
+- **Délégation** — Capacité pour un agent de déléguer des sous-tâches à d'autres agents de manière autonome
 - **RAG hybride** — Base vectorielle LanceDB + graphe de connaissances petgraph
-- **Corpus juridique** — 13 fiches thématiques (CAF, travail, impôts, santé, retraite…)
-- **Recherche web** — Sources officielles uniquement (service-public.fr, legifrance.gouv.fr…)
-- **Feedback loop** — Les résultats web de qualité enrichissent automatiquement le RAG
-- **Analyse PDF** — Extraction de texte depuis des documents administratifs
+- **Corpus & Skills** — Injection dynamique de documentation pour guider les agents
+- **Recherche web** — Sources officielles ou recherche généraliste configurables
+- **Analyse PDF & Fichiers** — Extraction de texte et lecture de fichiers système
 - **Historique** — Conversations sauvegardées localement (SQLite)
 - **Streaming** — Réponses en temps réel token par token
 - **API HTTP** — Serveur Axum avec streaming SSE pour intégrations tiers
@@ -36,15 +38,13 @@ Le tout **sans internet obligatoire**, sans compte, sans données envoyées null
 | Composant | Technologie |
 |---|---|
 | Core métier | **Rust** (`marianne-core`) |
-| App desktop | **Tauri 2** (`marianne-tauri`) |
 | Serveur HTTP | **Axum 0.7** + SSE (`marianne-server`) |
+| Client UI | **Svelte 5** + Vite + TS (`marianne-client`) |
 | LLM | **llama-cpp-2** (GGUF — compatible tout modèle) |
 | GPU | **Vulkan** (principal) · CUDA · Metal (optionnel) |
 | RAG | **GraphRAG hybride** (LanceDB vectoriel + petgraph) |
 | Embeddings | fastembed (multilingual-e5-small, 384 dims) |
-| Frontend desktop | HTML/CSS/JS vanilla + marked.js |
 | Historique | SQLite (sqlx) |
-| Recherche web | Sources officielles uniquement |
 
 ## Architecture
 
@@ -58,12 +58,12 @@ marianne/                          ← Workspace Cargo
 │       ├── rag/                   ←  GraphRAG (LanceDB + petgraph)
 │       ├── web/                   ←  Recherche web + cache
 │       ├── documents/             ←  Extraction PDF
-│       ├── prompts/               ←  Système de prompt
+│       ├── prompts/               ←  Système de prompt dynamique avec injection de Skills
+│       ├── workspace/             ←  Système Agentique (agents.rs, skills.rs, tools.rs)
 │       ├── history/               ←  SQLite
 │       ├── profile/               ←  Profil utilisateur
-│       ├── corpus/                ←  Corpus légal
 │       ├── network/               ←  Connectivité
-│       └── models.rs              ←  Registre modèles GGUF
+│       └── models.rs              ←  Gestion dynamique (download, delete, load) des modèles GGUF
 │
 ├── src-tauri/                     ← 🖥️ App desktop (thin layer)
 │   └── src/
@@ -74,14 +74,15 @@ marianne/                          ← Workspace Cargo
 ├── marianne-server/               ← ⚙️ Serveur HTTP binaire
 │   └── src/
 │       ├── main.rs                ←  Axum bootstrap (--bind, --data-dir)
-│       ├── state.rs               ←  Arc<AppState>
+│       ├── state.rs               ←  Arc<ServerState>
 │       └── routes/
 │           ├── chat.rs            ←  POST /api/v1/chat → SSE
 │           ├── history.rs         ←  GET /api/v1/history/:id
 │           ├── profile.rs         ←  GET/PUT /api/v1/profile
+│           ├── models.rs          ←  POST /api/v1/models/replace, DELETE /api/v1/models/:id
+│           ├── workspace.rs       ←  CRUD Agents & Skills
 │           └── documents.rs       ←  POST /api/v1/documents/extract
 │
-├── marianne-web/                  ← 🌐 Frontend Svelte (à créer)
 └── frontend/                      ← Interface WebView Tauri actuelle
 ```
 

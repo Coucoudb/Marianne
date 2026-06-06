@@ -106,10 +106,8 @@ export class ApiClient {
 
     const url = `${this.baseUrl}/api/v1/chat`;
     const body: ChatRequest = {
-      user_message: userMessage,
-      conversation_id: conversationId,
-      use_rag: useRag,
-      use_web_search: useWebSearch
+      message: userMessage,
+      conversation_id: conversationId
     };
 
     const response = await fetch(url, {

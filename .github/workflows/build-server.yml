@@ -130,7 +130,7 @@ jobs:
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake libssl-dev
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake libssl-dev build-essential gcc g++
 
       - name: Install Vulkan SDK (Linux)
         if: matrix.platform == 'ubuntu-latest' && matrix.needs-vulkan
@@ -165,10 +165,12 @@ jobs:
         working-directory: marianne
         env:
           RUST_BACKTRACE: '1'
-        run: >
-          cargo build -p marianne-server --release
-          --target ${{ matrix.target }}
-          --no-default-features --features ${{ matrix.features }}
+        run: |
+          if [ "${{ matrix.platform }}" = "ubuntu-latest" ]; then
+            export CC=gcc
+            export CXX=g++
+          fi
+          cargo build -p marianne-server --release --target ${{ matrix.target }} --no-default-features --features ${{ matrix.features }}
 
       # ── Package ──────────────────────────────────────────────────────────
       - name: Package (Windows)
