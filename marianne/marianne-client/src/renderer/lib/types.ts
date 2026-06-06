@@ -18,6 +18,8 @@ export interface ChatMessage {
   streaming?: boolean;
   webBadge?: WebBadge;
   contradictionWarning?: string;
+  /** Confidence score from confidence-info SSE event (0-1) */
+  confidence?: number;
   sources?: string[];
   stats?: { time_ms: number; tokens_generated: number };
 }

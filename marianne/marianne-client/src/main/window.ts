@@ -7,7 +7,37 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
+function createSplashWindow(): BrowserWindow {
+  const splash = new BrowserWindow({
+    width: 360,
+    height: 400,
+    frame: false,
+    transparent: false,
+    resizable: false,
+    movable: true,
+    center: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    backgroundColor: '#f8f6f2',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  if (isDev) {
+    splash.loadFile(path.join(__dirname, '../../src/renderer/splash.html'));
+  } else {
+    splash.loadFile(path.join(__dirname, '../renderer/src/renderer/splash.html'));
+  }
+
+  return splash;
+}
+
 export async function createWindow(): Promise<BrowserWindow> {
+  // Show splash immediately
+  const splash = createSplashWindow();
+
   const window = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -20,12 +50,18 @@ export async function createWindow(): Promise<BrowserWindow> {
       nodeIntegration: false,
       sandbox: false
     },
-    backgroundColor: '#1e1e1e',
+    backgroundColor: '#f8f6f2',
     show: false
   });
 
   // Register IPC handlers
   registerIPCHandlers(window);
+
+  // Show main window and close splash when ready. MUST be registered before load.
+  window.once('ready-to-show', () => {
+    splash.destroy();
+    window.show();
+  });
 
   // Load the app
   if (isDev) {
@@ -35,9 +71,11 @@ export async function createWindow(): Promise<BrowserWindow> {
     await window.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
-  // Show window when ready
-  window.once('ready-to-show', () => {
-    window.show();
+  // Safety: close splash if main window closes unexpectedly
+  window.on('closed', () => {
+    if (!splash.isDestroyed()) {
+      splash.destroy();
+    }
   });
 
   return window;

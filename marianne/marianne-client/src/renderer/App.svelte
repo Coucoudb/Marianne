@@ -1,25 +1,61 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { apiClient } from './lib/api';
-  import type { ChatMessage } from './lib/types';
+  import type { ChatMessage, UserProfile, SystemInfo, ModelsStatus } from './lib/types';
   import ChatMessages from './components/ChatMessages.svelte';
   import InputArea from './components/InputArea.svelte';
-  
+  import ConversationList from './components/ConversationList.svelte';
+
   let serverConfig = {
     host: 'localhost',
     port: 3000,
     protocol: 'http' as 'http' | 'https'
   };
-  
+
   let connectionStatus: 'connected' | 'disconnected' | 'testing' = 'disconnected';
   let errorMessage = '';
   let appVersion = '';
   let showSettings = false;
+  let settingsTab: 'connection' | 'profile' | 'models' = 'connection';
+  let sidebarCollapsed = false;
 
   // Chat state
   let msgs: ChatMessage[] = [];
   let conversationId: string | null = null;
   let generating = false;
+
+  // Conversations list (session-local)
+  let conversations: Array<{
+    id: string;
+    preview: string;
+    timestamp: number;
+    messageCount: number;
+  }> = [];
+
+  // Profile state
+  let profile: UserProfile = {
+    first_name: '',
+    age: null,
+    professional_status: null,
+    family_status: null,
+    department: null,
+    topics_of_interest: [],
+    language_level: 'Standard',
+    device_preference: 'Gpu',
+    gpu_selection: 'Auto',
+    selected_model: null,
+    updated_at: 0
+  };
+  let profileLoading = false;
+  let profileSaved = false;
+
+  // System info state
+  let systemInfo: SystemInfo | null = null;
+
+  // Models state
+  let modelsStatus: ModelsStatus | null = null;
+  let modelsLoading = false;
+  let modelLoadingId: string | null = null;
 
   onMount(async () => {
     // Load server config
@@ -44,7 +80,7 @@
   async function testConnection() {
     connectionStatus = 'testing';
     errorMessage = '';
-    
+
     try {
       const result = await window.electronAPI.server.testConnection(serverConfig);
       connectionStatus = result.success ? 'connected' : 'disconnected';
@@ -60,19 +96,87 @@
   async function saveConfig() {
     try {
       await window.electronAPI.server.setConfig(serverConfig);
-      await apiClient.init(); // Reinitialize with new config
+      await apiClient.init();
       await testConnection();
     } catch (error) {
       errorMessage = 'Impossible de sauvegarder la configuration';
     }
   }
 
+  // ─── Settings tab data loading ──────────────────────────
+  async function loadTabData(tab: string) {
+    if (tab === 'profile' && !profile.updated_at) {
+      await loadProfile();
+    }
+    if (tab === 'connection') {
+      await loadSystemInfo();
+    }
+    if (tab === 'models') {
+      await loadModelsStatus();
+    }
+  }
+
+  async function loadProfile() {
+    profileLoading = true;
+    try {
+      profile = await apiClient.getProfile();
+    } catch (err) {
+      console.error('Failed to load profile:', err);
+    } finally {
+      profileLoading = false;
+    }
+  }
+
+  async function saveProfile() {
+    try {
+      profile.updated_at = Math.floor(Date.now() / 1000);
+      await apiClient.updateProfile(profile);
+      profileSaved = true;
+      setTimeout(() => { profileSaved = false; }, 2000);
+    } catch (err: any) {
+      errorMessage = err.message || 'Erreur lors de la sauvegarde du profil';
+    }
+  }
+
+  async function loadSystemInfo() {
+    try {
+      systemInfo = await apiClient.getSystemInfo();
+    } catch (err) {
+      console.error('Failed to load system info:', err);
+    }
+  }
+
+  async function loadModelsStatus() {
+    modelsLoading = true;
+    try {
+      modelsStatus = await apiClient.getModelsStatus();
+    } catch (err) {
+      console.error('Failed to load models status:', err);
+    } finally {
+      modelsLoading = false;
+    }
+  }
+
+  async function handleLoadModel(modelId: string) {
+    modelLoadingId = modelId;
+    try {
+      await apiClient.loadModel(modelId);
+      await loadModelsStatus();
+      await loadSystemInfo();
+    } catch (err: any) {
+      errorMessage = err.message || 'Erreur lors du chargement du modèle';
+    } finally {
+      modelLoadingId = null;
+    }
+  }
+
+  // ─── Chat ──────────────────────────────────────────────
+
   async function sendMessage(prompt: string) {
     if (!prompt.trim() || generating) return;
 
     generating = true;
 
-    // Add user message
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
@@ -80,7 +184,6 @@
     };
     msgs = [...msgs, userMsg];
 
-    // Add assistant message placeholder
     const assistantMsg: ChatMessage = {
       id: (Date.now() + 1).toString(),
       role: 'assistant',
@@ -95,12 +198,10 @@
       const newConvId = await apiClient.chatStream(
         conversationId,
         prompt,
-        true,  // use_rag
-        false, // use_web_search
+        true,
+        false,
         (token) => {
-          // Stream token
           if (tokenBuffer === '') {
-            // First token, remove thinking
             assistantMsg.thinking = false;
             assistantMsg.streaming = true;
             msgs = msgs;
@@ -110,9 +211,7 @@
           msgs = msgs;
         },
         (metadata) => {
-          // Handle metadata events (generation-done, confidence-info, etc.)
           if (metadata.assistant_message) {
-            // generation-done event
             assistantMsg.content = metadata.assistant_message;
             if (metadata.tokens_generated && metadata.generation_time_ms) {
               assistantMsg.stats = {
@@ -122,17 +221,14 @@
             }
           }
           if (metadata.score !== undefined) {
-            // confidence-info event
-            // Could display confidence level in UI
+            (assistantMsg as any).confidence = metadata.score;
           }
           if (metadata.message && metadata.status) {
-            // web-search-status or offline-mode event
             if (metadata.status === 'searching') {
               assistantMsg.webBadge = { text: 'Recherche web...', kind: 'searching' };
             }
           }
           if (metadata.message && !metadata.status) {
-            // contradiction-warning event
             assistantMsg.contradictionWarning = metadata.message;
           }
           msgs = msgs;
@@ -146,18 +242,74 @@
       conversationId = newConvId;
       assistantMsg.streaming = false;
       msgs = msgs;
+
+      // Update conversations sidebar
+      updateConversationsList(newConvId, prompt);
     } catch (error: any) {
       errorMessage = error.message || 'Erreur lors de la génération';
-      // Remove assistant placeholder if error
       msgs = msgs.filter(m => m.id !== assistantMsg.id);
     } finally {
       generating = false;
     }
   }
 
+  function updateConversationsList(convId: string, lastMessage: string) {
+    const existing = conversations.find(c => c.id === convId);
+    if (existing) {
+      existing.timestamp = Date.now();
+      existing.messageCount = msgs.length;
+      conversations = conversations;
+    } else {
+      conversations = [{
+        id: convId,
+        preview: lastMessage,
+        timestamp: Date.now(),
+        messageCount: msgs.length
+      }, ...conversations];
+    }
+  }
+
   function newConversation() {
     conversationId = null;
     msgs = [];
+  }
+
+  async function selectConversation(convId: string) {
+    if (convId === conversationId) return;
+
+    conversationId = convId;
+    msgs = [];
+
+    try {
+      const history = await apiClient.getConversationHistory(convId);
+      msgs = history.map((turn, i) => ({
+        id: `${turn.timestamp}-${i}`,
+        role: turn.role,
+        content: turn.content
+      }));
+    } catch (err) {
+      console.error('Failed to load history:', err);
+      errorMessage = 'Impossible de charger l\'historique';
+    }
+  }
+
+  function handleSuggestion(e: CustomEvent<string>) {
+    sendMessage(e.detail);
+  }
+
+  function openSettings(tab: 'connection' | 'profile' | 'models' = 'connection') {
+    settingsTab = tab;
+    showSettings = true;
+    if (connectionStatus === 'connected') {
+      loadTabData(tab);
+    }
+  }
+
+  function switchTab(tab: 'connection' | 'profile' | 'models') {
+    settingsTab = tab;
+    if (connectionStatus === 'connected') {
+      loadTabData(tab);
+    }
   }
 
   $: serverUrl = `${serverConfig.protocol}://${serverConfig.host}:${serverConfig.port}`;
@@ -174,55 +326,276 @@
     </div>
     <div class="header-actions">
       <div class="status-indicator" class:connected={connectionStatus === 'connected'}>
-        {connectionStatus === 'connected' ? '● Connecté' : '○ Déconnecté'}
+        {connectionStatus === 'connected' ? 'Connecté' : 'Déconnecté'}
       </div>
-      <button class="icon-button" on:click={() => showSettings = !showSettings} title="Paramètres">
-        ⚙️
+      <button class="icon-button" on:click={() => openSettings('connection')} title="Paramètres" aria-label="Paramètres">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+        </svg>
       </button>
-      <button class="icon-button" on:click={newConversation} title="Nouvelle conversation">
-        ✨
+      <button class="icon-button" on:click={newConversation} title="Nouvelle conversation" aria-label="Nouvelle conversation">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20h9"/>
+          <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+        </svg>
       </button>
     </div>
   </header>
 
+  <div class="app-layout">
+    <ConversationList
+      {conversations}
+      activeConversationId={conversationId}
+      collapsed={sidebarCollapsed}
+      on:select={(e) => selectConversation(e.detail)}
+      on:new={newConversation}
+      on:toggle={() => sidebarCollapsed = !sidebarCollapsed}
+    />
+
+    <main class="app-main">
+      <ChatMessages {msgs} on:suggest={handleSuggestion} />
+      <InputArea on:send={(e) => sendMessage(e.detail)} disabled={generating || connectionStatus !== 'connected'} />
+    </main>
+  </div>
+
   {#if showSettings}
-    <div class="settings-overlay" on:click={() => showSettings = false}>
-      <div class="settings-modal" on:click|stopPropagation>
-        <h2>Configuration du serveur</h2>
-        
-        <div class="form-group">
-          <label for="protocol">Protocole</label>
-          <select id="protocol" bind:value={serverConfig.protocol}>
-            <option value="http">HTTP</option>
-            <option value="https">HTTPS</option>
-          </select>
-        </div>
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="settings-overlay" on:click={() => showSettings = false}></div>
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="settings-panel" on:click|stopPropagation>
+      <div class="settings-header">
+        <h2>Paramètres</h2>
+        <button class="settings-close" on:click={() => showSettings = false} aria-label="Fermer">✕</button>
+      </div>
 
-        <div class="form-group">
-          <label for="host">Hôte</label>
-          <input id="host" type="text" bind:value={serverConfig.host} placeholder="localhost" />
-        </div>
+      <div class="settings-tabs">
+        <button
+          class="settings-tab"
+          class:active={settingsTab === 'connection'}
+          on:click={() => switchTab('connection')}
+        >Connexion</button>
+        <button
+          class="settings-tab"
+          class:active={settingsTab === 'profile'}
+          on:click={() => switchTab('profile')}
+        >Profil</button>
+        <button
+          class="settings-tab"
+          class:active={settingsTab === 'models'}
+          on:click={() => switchTab('models')}
+        >Modèles</button>
+      </div>
 
-        <div class="form-group">
-          <label for="port">Port</label>
-          <input id="port" type="number" bind:value={serverConfig.port} placeholder="3000" />
-        </div>
+      <div class="settings-body">
+        {#if settingsTab === 'connection'}
+          <!-- ── Connection Tab ──────────────────────────────── -->
+          <div class="section-label">Configuration serveur</div>
 
-        <div class="server-url">
-          <strong>URL:</strong> {serverUrl}
-        </div>
+          <div class="form-group">
+            <label for="protocol">Protocole</label>
+            <select id="protocol" bind:value={serverConfig.protocol}>
+              <option value="http">HTTP</option>
+              <option value="https">HTTPS</option>
+            </select>
+          </div>
 
-        <div class="button-group">
-          <button on:click={testConnection} disabled={connectionStatus === 'testing'}>
-            {connectionStatus === 'testing' ? 'Test en cours...' : 'Tester'}
-          </button>
-          <button on:click={saveConfig} class="primary">
-            Sauvegarder
-          </button>
-          <button on:click={() => showSettings = false}>
-            Fermer
-          </button>
-        </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="host">Hôte</label>
+              <input id="host" type="text" bind:value={serverConfig.host} placeholder="localhost" />
+            </div>
+            <div class="form-group">
+              <label for="port">Port</label>
+              <input id="port" type="number" bind:value={serverConfig.port} placeholder="3000" />
+            </div>
+          </div>
+
+          <div class="server-url">
+            {serverUrl}
+          </div>
+
+          <div class="button-group">
+            <button on:click={testConnection} disabled={connectionStatus === 'testing'}>
+              {connectionStatus === 'testing' ? 'Test...' : '🔌 Tester'}
+            </button>
+            <button on:click={saveConfig} class="primary">
+              💾 Sauvegarder
+            </button>
+          </div>
+
+          {#if systemInfo}
+            <div style="margin-top: var(--spacing-xl);">
+              <div class="section-label">Informations système</div>
+              <div class="info-card-row">
+                <div class="info-card">
+                  <div class="info-card-label">Dispositif</div>
+                  <div class="info-card-value">{systemInfo.device.label}</div>
+                </div>
+                <div class="info-card">
+                  <div class="info-card-label">GPU disponible</div>
+                  <div class="info-card-value">{systemInfo.device.gpu_available ? '✅ Oui' : '❌ Non'}</div>
+                </div>
+              </div>
+              <div class="info-card-row">
+                <div class="info-card">
+                  <div class="info-card-label">Modèle actif</div>
+                  <div class="info-card-value">{systemInfo.model.active ? systemInfo.model.name : 'Aucun'}</div>
+                </div>
+                <div class="info-card">
+                  <div class="info-card-label">Préférence</div>
+                  <div class="info-card-value">{systemInfo.preference.device}</div>
+                </div>
+              </div>
+              {#if systemInfo.gpu_devices.length > 0}
+                <div class="section-label" style="margin-top: var(--spacing-md);">GPU détectés</div>
+                {#each systemInfo.gpu_devices as gpu}
+                  <div class="info-card">
+                    <div class="info-card-label">{gpu.device_type.toUpperCase()} #{gpu.index}</div>
+                    <div class="info-card-value">{gpu.name}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.25rem;">
+                      {gpu.vram_free_mb} Mo VRAM libre
+                    </div>
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          {/if}
+
+        {:else if settingsTab === 'profile'}
+          <!-- ── Profile Tab ─────────────────────────────────── -->
+          {#if profileLoading}
+            <div style="text-align: center; padding: var(--spacing-2xl); color: var(--text-tertiary);">
+              Chargement du profil...
+            </div>
+          {:else}
+            <div class="section-label">Informations personnelles</div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="first-name">Prénom</label>
+                <input id="first-name" type="text" bind:value={profile.first_name} placeholder="Votre prénom" />
+              </div>
+              <div class="form-group">
+                <label for="age">Âge</label>
+                <input id="age" type="number" bind:value={profile.age} placeholder="25" min="0" max="120" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="pro-status">Statut professionnel</label>
+              <select id="pro-status" bind:value={profile.professional_status}>
+                <option value={null}>Non renseigné</option>
+                <option value="Salarie">Salarié</option>
+                <option value="ChomeurIndemise">Chômeur indemnisé</option>
+                <option value="ChomeurNonIndemise">Chômeur non indemnisé</option>
+                <option value="EtudiantApprentis">Étudiant / Apprenti</option>
+                <option value="Retraite">Retraité</option>
+                <option value="Independant">Indépendant</option>
+                <option value="FonctionPublique">Fonction publique</option>
+                <option value="Autre">Autre</option>
+              </select>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="department">Département</label>
+                <input id="department" type="text" bind:value={profile.department} placeholder="75" maxlength="3" />
+              </div>
+              <div class="form-group">
+                <label for="lang-level">Niveau de langue</label>
+                <select id="lang-level" bind:value={profile.language_level}>
+                  <option value="Simple">Simple</option>
+                  <option value="Standard">Standard</option>
+                  <option value="Technique">Technique</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="margin-top: var(--spacing-lg);"></div>
+            <div class="section-label">Préférences matérielles</div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="device-pref">Dispositif</label>
+                <select id="device-pref" bind:value={profile.device_preference}>
+                  <option value="Gpu">GPU</option>
+                  <option value="Cpu">CPU</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="gpu-sel">Sélection GPU</label>
+                <select id="gpu-sel" bind:value={profile.gpu_selection}>
+                  <option value="Auto">Auto</option>
+                  <option value="AllGpus">Tous les GPU</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="button-group">
+              <button on:click={saveProfile} class="primary">
+                {profileSaved ? '✅ Sauvegardé' : '💾 Sauvegarder le profil'}
+              </button>
+            </div>
+          {/if}
+
+        {:else if settingsTab === 'models'}
+          <!-- ── Models Tab ──────────────────────────────────── -->
+          {#if modelsLoading}
+            <div style="text-align: center; padding: var(--spacing-2xl); color: var(--text-tertiary);">
+              Chargement des modèles...
+            </div>
+          {:else if modelsStatus}
+            {#if modelsStatus.loaded_model}
+              <div class="section-label">Modèle actif</div>
+              <div class="model-card active">
+                <div class="model-card-info">
+                  <span class="model-card-name">{modelsStatus.loaded_model.name}</span>
+                  <span class="model-card-meta">{modelsStatus.loaded_model.device_label}</span>
+                </div>
+                <span class="model-badge loaded">Chargé</span>
+              </div>
+            {/if}
+
+            <div class="section-label" style="margin-top: var(--spacing-lg);">Modèles téléchargés</div>
+            {#if modelsStatus.downloaded_models.length === 0}
+              <div style="text-align: center; padding: var(--spacing-xl); color: var(--text-tertiary); font-size: 0.875rem;">
+                Aucun modèle téléchargé
+              </div>
+            {:else}
+              {#each modelsStatus.downloaded_models as model}
+                <div class="model-card" class:active={modelsStatus.loaded_model?.id === model.id}>
+                  <div class="model-card-info">
+                    <span class="model-card-name">{model.name}</span>
+                    <span class="model-card-meta">{model.size_mb} Mo — {model.filename}</span>
+                  </div>
+                  {#if modelsStatus.loaded_model?.id === model.id}
+                    <span class="model-badge loaded">Actif</span>
+                  {:else}
+                    <button
+                      class="primary"
+                      style="padding: 0.25rem 0.75rem; font-size: 0.75rem;"
+                      disabled={modelLoadingId !== null}
+                      on:click={() => handleLoadModel(model.id)}
+                    >
+                      {modelLoadingId === model.id ? 'Chargement...' : 'Charger'}
+                    </button>
+                  {/if}
+                </div>
+              {/each}
+            {/if}
+
+            <div class="button-group" style="margin-top: var(--spacing-xl);">
+              <button on:click={loadModelsStatus}>
+                🔄 Actualiser
+              </button>
+            </div>
+          {:else}
+            <div style="text-align: center; padding: var(--spacing-2xl); color: var(--text-tertiary); font-size: 0.875rem;">
+              Connectez-vous au serveur pour voir les modèles.
+            </div>
+          {/if}
+        {/if}
 
         {#if errorMessage}
           <div class="error-message">{errorMessage}</div>
@@ -230,11 +603,6 @@
       </div>
     </div>
   {/if}
-
-  <main class="app-main">
-    <ChatMessages {msgs} />
-    <InputArea on:send={(e) => sendMessage(e.detail)} disabled={generating || connectionStatus !== 'connected'} />
-  </main>
 </div>
 
 <style>
@@ -242,179 +610,23 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
+    background: var(--bg-primary);
   }
 
-  .app-header {
+  /* Layout override to match new app structure */
+  .app-layout {
+    flex: 1;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 var(--spacing-lg);
-    background: var(--bg-secondary);
-    height: 60px;
-    box-shadow: var(--shadow-sm);
-    position: relative;
-  }
-
-  .app-header::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg,
-      var(--bleu-france) 0%, var(--bleu-france) 33.3%,
-      var(--blanc) 33.3%, var(--blanc) 66.6%,
-      var(--rouge-marianne) 66.6%, var(--rouge-marianne) 100%
-    );
-  }
-
-  .header-logo {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--bleu-france);
-  }
-
-  .version {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    font-weight: 400;
-  }
-
-  .status-indicator {
-    padding: 0.5rem 1rem;
-    border-radius: var(--radius-full);
-    background: var(--error);
-    color: white;
-    font-size: 0.875rem;
-    font-weight: 500;
-  }
-
-  .status-indicator.connected {
-    background: var(--success);
+    overflow: hidden;
   }
 
   .app-main {
     flex: 1;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--spacing-xl);
-    padding: var(--spacing-xl);
-    overflow: auto;
-  }
-
-  .config-panel, .demo-panel {
-    background: var(--bg-secondary);
-    border-radius: var(--radius-md);
-    padding: var(--spacing-xl);
-    box-shadow: var(--shadow-sm);
-  }
-
-  h2 {
-    margin-bottom: var(--spacing-lg);
-    color: var(--bleu-france);
-  }
-
-  .form-group {
-    margin-bottom: var(--spacing-md);
-  }
-
-  label {
-    display: block;
-    margin-bottom: var(--spacing-xs);
-    font-weight: 500;
-    color: var(--text-secondary);
-  }
-
-  input, select {
-    width: 100%;
-    padding: 0.625rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    font-family: var(--font-family);
-    font-size: 0.95rem;
-  }
-
-  input:focus, select:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
-  .server-url {
-    margin: var(--spacing-lg) 0;
-    padding: var(--spacing-md);
-    background: var(--bg-primary);
-    border-radius: var(--radius-sm);
-    font-family: monospace;
-  }
-
-  .button-group {
-    display: flex;
-    gap: var(--spacing-md);
-  }
-
-  button {
-    padding: 0.625rem 1.25rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-secondary);
-    cursor: pointer;
-    font-size: 0.95rem;
-    transition: all 0.2s;
-  }
-
-  button:hover:not(:disabled) {
-    background: var(--bg-primary);
-    transform: translateY(-1px);
-  }
-
-  button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  button.primary {
-    background: var(--bleu-france);
-    color: white;
-    border-color: var(--bleu-france);
-  }
-
-  button.primary:hover:not(:disabled) {
-    background: var(--bleu-france-light);
-  }
-
-  .error-message {
-    margin-top: var(--spacing-md);
-    padding: var(--spacing-md);
-    background: #fee;
-    color: var(--error);
-    border-radius: var(--radius-sm);
-    border-left: 3px solid var(--error);
-  }
-
-  .feature-buttons {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-md);
-    margin-bottom: var(--spacing-lg);
+    overflow: hidden;
+    min-width: 0;
   }
 
-  .info-box {
-    margin-top: var(--spacing-xl);
-    padding: var(--spacing-lg);
-    background: var(--bg-primary);
-    border-radius: var(--radius-sm);
-    border-left: 3px solid var(--bleu-france);
-  }
-
-  .info-box p {
-    margin-bottom: var(--spacing-sm);
-  }
-
-  .info-box p:last-child {
-    margin-bottom: 0;
-  }
+  /* All other styles come from app.css global */
 </style>

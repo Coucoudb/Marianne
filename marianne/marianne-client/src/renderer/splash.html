@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Marianne AI</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8f6f2;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      -webkit-app-region: drag;
+      user-select: none;
+    }
+
+    /* Tricolor bar at top */
+    .tricolor {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg,
+        #000091 0%, #000091 33.3%,
+        #ffffff 33.3%, #ffffff 66.6%,
+        #e1000f 66.6%, #e1000f 100%
+      );
+    }
+
+    .splash-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      animation: fadeIn 0.4s ease-out;
+    }
+
+    /* Avatar */
+    .avatar-container {
+      position: relative;
+      width: 80px;
+      height: 80px;
+    }
+
+    .avatar {
+      width: 72px;
+      height: 72px;
+      background: linear-gradient(135deg, #000091 0%, #1a1aab 100%);
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2rem;
+      font-weight: 700;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 1;
+      box-shadow: 0 4px 20px rgba(0, 0, 145, 0.25);
+    }
+
+    .avatar-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 2px solid rgba(0, 0, 145, 0.15);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    /* Title */
+    .title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #000091;
+      letter-spacing: -0.01em;
+    }
+
+    .subtitle {
+      font-size: 0.8125rem;
+      color: #9a9a9a;
+      margin-top: -12px;
+    }
+
+    /* Loading spinner */
+    .loader {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .loader-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #000091;
+      animation: dotPulse 1.2s ease-in-out infinite;
+    }
+
+    .loader-dot:nth-child(2) { animation-delay: 150ms; }
+    .loader-dot:nth-child(3) { animation-delay: 300ms; }
+
+    /* Version */
+    .version {
+      position: absolute;
+      bottom: 16px;
+      font-size: 0.6875rem;
+      color: #c0bdb7;
+    }
+
+    /* Animations */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.6; transform: scale(1); }
+      50% { opacity: 0.2; transform: scale(1.1); }
+    }
+
+    @keyframes dotPulse {
+      0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+      40% { opacity: 1; transform: scale(1); }
+    }
+  </style>
+</head>
+<body>
+  <div class="tricolor"></div>
+
+  <div class="splash-content">
+    <div class="avatar-container">
+      <div class="avatar">M</div>
+      <div class="avatar-ring"></div>
+    </div>
+    <div class="title">Marianne AI</div>
+    <div class="subtitle">Chargement en cours...</div>
+    <div class="loader">
+      <div class="loader-dot"></div>
+      <div class="loader-dot"></div>
+      <div class="loader-dot"></div>
+    </div>
+  </div>
+
+  <div class="version">Marianne AI</div>
+</body>
+</html>

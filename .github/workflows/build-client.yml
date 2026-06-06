@@ -64,7 +64,7 @@ jobs:
             libdrm2 \
             libgbm1 \
             libxss1 \
-            libasound2
+            libasound2t64
 
       # ── Set version ──────────────────────────────────────────────────────
       - name: Set version
