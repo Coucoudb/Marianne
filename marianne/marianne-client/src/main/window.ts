@@ -1,7 +1,10 @@
 import { BrowserWindow, app } from 'electron';
 import path from 'path';
-import { registerIPCHandlers } from './ipc';
+import { fileURLToPath } from 'url';
+import { registerIPCHandlers } from './ipc/index.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 export async function createWindow(): Promise<BrowserWindow> {

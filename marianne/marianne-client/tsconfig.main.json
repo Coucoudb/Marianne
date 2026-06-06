@@ -2,6 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
+    "lib": ["ES2022"],
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "esModuleInterop": true,
@@ -11,8 +12,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "outDir": "dist/main",
-    "baseUrl": "."
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"]
   },
   "include": ["src/main/**/*.ts", "src/preload/**/*.ts"],
   "exclude": ["node_modules", "dist"]

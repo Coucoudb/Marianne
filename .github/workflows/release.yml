@@ -38,7 +38,6 @@ jobs:
     uses: ./.github/workflows/build-server.yml
     with:
       version: ${{ needs.prepare.outputs.version }}
-      version: ${{ needs.prepare.outputs.version }}
 
   # ── Create GitHub Release ────────────────────────────────────────────────
   release:

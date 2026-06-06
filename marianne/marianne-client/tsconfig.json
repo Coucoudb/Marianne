@@ -1,8 +1,8 @@
 {
-  "extends": "@tsconfig/svelte/tsconfig.json",
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "allowJs": true,
@@ -15,11 +15,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+    "rootDir": "src/renderer",
     "outDir": "dist/renderer",
-    "baseUrl": ".",
-    "paths": {
-      "$lib/*": ["src/renderer/lib/*"]
-    }
+    "types": ["vite/client", "svelte"]
   },
   "include": ["src/renderer/**/*.ts", "src/renderer/**/*.svelte"],
   "exclude": ["node_modules", "dist"]

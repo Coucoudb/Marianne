@@ -1,5 +1,5 @@
 import { app, BrowserWindow } from 'electron';
-import { createWindow } from './window';
+import { createWindow } from './window.js';
 
 let mainWindow: BrowserWindow | null = null;
 

@@ -1,4 +1,4 @@
-name: Build Server (HTTP)
+name: Build Server
 
 on:
   workflow_call:
@@ -173,6 +173,9 @@ jobs:
         shell: pwsh
         run: |
           $src = "D:\cb\${{ matrix.target }}\release\marianne-server.exe"
+          if (-not (Test-Path $src)) {
+            $src = "marianne\target\${{ matrix.target }}\release\marianne-server.exe"
+          }
           $dest = "marianne-server-${{ matrix.platform-name }}-${{ matrix.variant }}.zip"
           Compress-Archive -Path $src -DestinationPath $dest
 
@@ -190,3 +193,5 @@ jobs:
         with:
           name: marianne-server-${{ matrix.platform-name }}-${{ matrix.variant }}
           path: marianne-server-${{ matrix.platform-name }}-${{ matrix.variant }}.*
+          if-no-files-found: error
+
