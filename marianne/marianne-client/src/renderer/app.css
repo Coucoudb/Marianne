@@ -104,11 +104,165 @@ body {
     color: var(--bleu-france);
 }
 
-button {
-    font-family: var(--font-family);
+.version {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    font-weight: 400;
 }
 
-/* Scrollbar styling */
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.status-indicator {
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-full);
+    background: var(--error);
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.status-indicator.connected {
+    background: var(--success);
+}
+
+.icon-button {
+    width: 40px;
+    height: 40px;
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: 1.25rem;
+    transition: background 0.2s;
+}
+
+.icon-button:hover {
+    background: var(--bg-primary);
+}
+
+/* ─── MAIN ───────────────────────────────────────────────── */
+.app-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ─── SETTINGS MODAL ─────────────────────────────────────── */
+.settings-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.settings-modal {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-xl);
+    box-shadow: var(--shadow-lg);
+    max-width: 500px;
+    width: 90%;
+}
+
+.settings-modal h2 {
+    margin-bottom: var(--spacing-lg);
+    color: var(--bleu-france);
+}
+
+.form-group {
+    margin-bottom: var(--spacing-md);
+}
+
+label {
+    display: block;
+    margin-bottom: var(--spacing-xs);
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+input, select {
+    width: 100%;
+    padding: 0.625rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-family);
+    font-size: 0.95rem;
+}
+
+input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.server-url {
+    margin: var(--spacing-lg) 0;
+    padding: var(--spacing-md);
+    background: var(--bg-primary);
+    border-radius: var(--radius-sm);
+    font-family: monospace;
+    font-size: 0.875rem;
+}
+
+.button-group {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-lg);
+}
+
+button {
+    padding: 0.625rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-family: var(--font-family);
+    transition: all 0.2s;
+}
+
+button:hover:not(:disabled) {
+    background: var(--bg-primary);
+    transform: translateY(-1px);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+button.primary {
+    background: var(--bleu-france);
+    color: white;
+    border-color: var(--bleu-france);
+}
+
+button.primary:hover:not(:disabled) {
+    background: var(--bleu-france-light);
+}
+
+.error-message {
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: #fee;
+    color: var(--error);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--error);
+    font-size: 0.875rem;
+}
+
+/* ─── SCROLLBAR ──────────────────────────────────────────── */
 ::-webkit-scrollbar {
     width: 8px;
 }
@@ -125,3 +279,4 @@ button {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-secondary);
 }
+

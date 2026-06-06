@@ -1,5 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { apiClient } from './lib/api';
+  import type { ChatMessage } from './lib/types';
+  import ChatMessages from './components/ChatMessages.svelte';
+  import InputArea from './components/InputArea.svelte';
   
   let serverConfig = {
     host: 'localhost',
@@ -10,6 +14,12 @@
   let connectionStatus: 'connected' | 'disconnected' | 'testing' = 'disconnected';
   let errorMessage = '';
   let appVersion = '';
+  let showSettings = false;
+
+  // Chat state
+  let msgs: ChatMessage[] = [];
+  let conversationId: string | null = null;
+  let generating = false;
 
   onMount(async () => {
     // Load server config
@@ -26,6 +36,9 @@
     } catch (error) {
       console.error('Failed to get app version:', error);
     }
+
+    // Initialize API client
+    await apiClient.init();
   });
 
   async function testConnection() {
@@ -47,37 +60,91 @@
   async function saveConfig() {
     try {
       await window.electronAPI.server.setConfig(serverConfig);
+      await apiClient.init(); // Reinitialize with new config
       await testConnection();
     } catch (error) {
       errorMessage = 'Impossible de sauvegarder la configuration';
     }
   }
 
-  async function openFile() {
+  async function sendMessage(prompt: string) {
+    if (!prompt.trim() || generating) return;
+
+    generating = true;
+
+    // Add user message
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: prompt
+    };
+    msgs = [...msgs, userMsg];
+
+    // Add assistant message placeholder
+    const assistantMsg: ChatMessage = {
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
+      content: '',
+      thinking: true
+    };
+    msgs = [...msgs, assistantMsg];
+
+    let tokenBuffer = '';
+
     try {
-      const files = await window.electronAPI.file.openDialog({
-        filters: [
-          { name: 'Documents', extensions: ['pdf', 'txt', 'md', 'doc', 'docx'] },
-          { name: 'Tous les fichiers', extensions: ['*'] }
-        ]
-      });
-      
-      if (files.length > 0) {
-        console.log('Selected files:', files);
-        // TODO: Handle file upload to server
-      }
-    } catch (error) {
-      console.error('Failed to open file:', error);
+      const newConvId = await apiClient.chatStream(
+        conversationId,
+        prompt,
+        [],
+        (token) => {
+          // Stream token
+          if (tokenBuffer === '') {
+            // First token, remove thinking
+            assistantMsg.thinking = false;
+            assistantMsg.streaming = true;
+            msgs = msgs;
+          }
+          tokenBuffer += token;
+          assistantMsg.content = tokenBuffer;
+          msgs = msgs;
+        },
+        (metadata) => {
+          // Handle metadata (sources, stats, etc.)
+          if (metadata.sources) {
+            assistantMsg.sources = metadata.sources;
+          }
+          if (metadata.stats) {
+            assistantMsg.stats = metadata.stats;
+          }
+          if (metadata.web_badge) {
+            assistantMsg.webBadge = metadata.web_badge;
+          }
+          if (metadata.contradiction_warning) {
+            assistantMsg.contradictionWarning = metadata.contradiction_warning;
+          }
+          msgs = msgs;
+        },
+        (error) => {
+          errorMessage = error;
+          generating = false;
+        }
+      );
+
+      conversationId = newConvId;
+      assistantMsg.streaming = false;
+      msgs = msgs;
+    } catch (error: any) {
+      errorMessage = error.message || 'Erreur lors de la génération';
+      // Remove assistant placeholder if error
+      msgs = msgs.filter(m => m.id !== assistantMsg.id);
+    } finally {
+      generating = false;
     }
   }
 
-  async function executeCommand() {
-    try {
-      const result = await window.electronAPI.terminal.exec('echo "Hello from Marianne"');
-      console.log('Command result:', result);
-    } catch (error) {
-      console.error('Failed to execute command:', error);
-    }
+  function newConversation() {
+    conversationId = null;
+    msgs = [];
   }
 
   $: serverUrl = `${serverConfig.protocol}://${serverConfig.host}:${serverConfig.port}`;
@@ -87,74 +154,73 @@
   <header class="app-header">
     <div class="header-logo">
       <span>🇫🇷</span>
-      <span>Marianne AI Client</span>
+      <span>Marianne AI</span>
       {#if appVersion}
         <span class="version">v{appVersion}</span>
       {/if}
     </div>
-    <div class="status-indicator" class:connected={connectionStatus === 'connected'}>
-      {connectionStatus === 'connected' ? '● Connecté' : '○ Déconnecté'}
+    <div class="header-actions">
+      <div class="status-indicator" class:connected={connectionStatus === 'connected'}>
+        {connectionStatus === 'connected' ? '● Connecté' : '○ Déconnecté'}
+      </div>
+      <button class="icon-button" on:click={() => showSettings = !showSettings} title="Paramètres">
+        ⚙️
+      </button>
+      <button class="icon-button" on:click={newConversation} title="Nouvelle conversation">
+        ✨
+      </button>
     </div>
   </header>
 
-  <main class="app-main">
-    <div class="config-panel">
-      <h2>Configuration du serveur</h2>
-      
-      <div class="form-group">
-        <label for="protocol">Protocole</label>
-        <select id="protocol" bind:value={serverConfig.protocol}>
-          <option value="http">HTTP</option>
-          <option value="https">HTTPS</option>
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label for="host">Hôte</label>
-        <input id="host" type="text" bind:value={serverConfig.host} placeholder="localhost" />
-      </div>
-
-      <div class="form-group">
-        <label for="port">Port</label>
-        <input id="port" type="number" bind:value={serverConfig.port} placeholder="3000" />
-      </div>
-
-      <div class="server-url">
-        <strong>URL:</strong> {serverUrl}
-      </div>
-
-      <div class="button-group">
-        <button on:click={testConnection} disabled={connectionStatus === 'testing'}>
-          {connectionStatus === 'testing' ? 'Test en cours...' : 'Tester la connexion'}
-        </button>
-        <button on:click={saveConfig} class="primary">
-          Sauvegarder
-        </button>
-      </div>
-
-      {#if errorMessage}
-        <div class="error-message">{errorMessage}</div>
-      {/if}
-    </div>
-
-    <div class="demo-panel">
-      <h2>Fonctionnalités</h2>
-      
-      <div class="feature-buttons">
-        <button on:click={openFile}>
-          📁 Ouvrir un fichier
-        </button>
+  {#if showSettings}
+    <div class="settings-overlay" on:click={() => showSettings = false}>
+      <div class="settings-modal" on:click|stopPropagation>
+        <h2>Configuration du serveur</h2>
         
-        <button on:click={executeCommand}>
-          💻 Exécuter une commande
-        </button>
-      </div>
+        <div class="form-group">
+          <label for="protocol">Protocole</label>
+          <select id="protocol" bind:value={serverConfig.protocol}>
+            <option value="http">HTTP</option>
+            <option value="https">HTTPS</option>
+          </select>
+        </div>
 
-      <div class="info-box">
-        <p><strong>Marianne Client</strong> est une application desktop qui se connecte au serveur Marianne pour accéder à l'IA.</p>
-        <p>Configurez l'URL du serveur ci-dessus pour commencer.</p>
+        <div class="form-group">
+          <label for="host">Hôte</label>
+          <input id="host" type="text" bind:value={serverConfig.host} placeholder="localhost" />
+        </div>
+
+        <div class="form-group">
+          <label for="port">Port</label>
+          <input id="port" type="number" bind:value={serverConfig.port} placeholder="3000" />
+        </div>
+
+        <div class="server-url">
+          <strong>URL:</strong> {serverUrl}
+        </div>
+
+        <div class="button-group">
+          <button on:click={testConnection} disabled={connectionStatus === 'testing'}>
+            {connectionStatus === 'testing' ? 'Test en cours...' : 'Tester'}
+          </button>
+          <button on:click={saveConfig} class="primary">
+            Sauvegarder
+          </button>
+          <button on:click={() => showSettings = false}>
+            Fermer
+          </button>
+        </div>
+
+        {#if errorMessage}
+          <div class="error-message">{errorMessage}</div>
+        {/if}
       </div>
     </div>
+  {/if}
+
+  <main class="app-main">
+    <ChatMessages {msgs} />
+    <InputArea on:send={(e) => sendMessage(e.detail)} disabled={generating || connectionStatus !== 'connected'} />
   </main>
 </div>
 
