@@ -104,11 +104,20 @@ jobs:
       # ── CUDA ─────────────────────────────────────────────────────────────
       - name: Install CUDA Toolkit (Linux)
         if: matrix.platform == 'ubuntu-latest' && matrix.variant == 'cuda'
+        id: cuda-toolkit-linux
         uses: Jimver/cuda-toolkit@v0.2.21
         with:
           cuda: '12.6.0'
           method: 'local'
           linux-local-args: '["--toolkit"]'
+
+      - name: Set CUDA env (Linux)
+        if: matrix.platform == 'ubuntu-latest' && matrix.variant == 'cuda'
+        run: |
+          CUDA_PATH="${{ steps.cuda-toolkit-linux.outputs.CUDA_PATH }}"
+          echo "CUDA_PATH=${CUDA_PATH}" >> $GITHUB_ENV
+          echo "CUDACXX=${CUDA_PATH}/bin/nvcc" >> $GITHUB_ENV
+          echo "${CUDA_PATH}/bin" >> $GITHUB_PATH
 
       - name: Install CUDA Toolkit (Windows)
         if: matrix.platform == 'windows-latest' && matrix.variant == 'cuda'

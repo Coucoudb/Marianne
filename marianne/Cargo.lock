@@ -4494,7 +4494,6 @@ dependencies = [
  "axum",
  "clap",
  "dirs 5.0.1",
- "llama-cpp-sys-2",
  "marianne-core",
  "serde",
  "serde_json",
