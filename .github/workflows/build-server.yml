@@ -162,6 +162,7 @@ jobs:
 
       # ── Build ────────────────────────────────────────────────────────────
       - name: Build marianne-server
+        shell: bash
         working-directory: marianne
         env:
           RUST_BACKTRACE: '1'
