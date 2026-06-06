@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/Coucoudb/Marianne?style=flat-square)](https://github.com/Coucoudb/Marianne/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
-> **v0.0.2** — Application desktop souveraine, 100% locale, sans cloud, sans serveur, avec LLM embarqué.
+> Application desktop souveraine, 100% locale, sans cloud, sans serveur, avec LLM embarqué.
 > Vos données ne quittent jamais votre ordinateur.
 
 ## Présentation

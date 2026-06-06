@@ -5,6 +5,7 @@ use crate::profile::UserProfile;
 use crate::rag::store::VectorStore;
 use crate::rag::graph::KnowledgeGraph;
 use crate::history::sqlite::HistoryDb;
+use crate::workspace::WorkspaceManager;
 use dashmap::DashSet;
 use parking_lot::Mutex;
 use std::sync::atomic::AtomicBool;
@@ -40,6 +41,9 @@ pub struct AppState {
     /// Cache de connectivité réseau (mode hors-ligne intelligent)
     pub connectivity: Arc<ConnectivityCache>,
 
+    /// Manager du workspace local (Agents & Skills)
+    pub workspace: Arc<WorkspaceManager>,
+
     /// Flag d'arrêt de génération — positionné par stop_generation
     pub abort_generation: Arc<AtomicBool>,
 }
@@ -56,6 +60,7 @@ impl AppState {
             known_hashes: Arc::new(DashSet::new()),
             profile: Arc::new(Mutex::new(profile)),
             connectivity: Arc::new(ConnectivityCache::new()),
+            workspace: Arc::new(WorkspaceManager::new(&data_dir.join("workspace"))),
             abort_generation: Arc::new(AtomicBool::new(false)),
             data_dir,
         }

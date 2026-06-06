@@ -5,6 +5,8 @@
   import ChatMessages from './components/ChatMessages.svelte';
   import InputArea from './components/InputArea.svelte';
   import ConversationList from './components/ConversationList.svelte';
+  import AgentsManager from './components/AgentsManager.svelte';
+  import SkillsManager from './components/SkillsManager.svelte';
 
   let serverConfig = {
     host: 'localhost',
@@ -16,7 +18,7 @@
   let errorMessage = '';
   let appVersion = '';
   let showSettings = false;
-  let settingsTab: 'connection' | 'profile' | 'models' = 'connection';
+  let settingsTab: 'connection' | 'profile' | 'models' | 'agents' | 'skills' = 'connection';
   let sidebarCollapsed = false;
 
   // Chat state
@@ -297,7 +299,7 @@
     sendMessage(e.detail);
   }
 
-  function openSettings(tab: 'connection' | 'profile' | 'models' = 'connection') {
+  function openSettings(tab: 'connection' | 'profile' | 'models' | 'agents' | 'skills' = 'connection') {
     settingsTab = tab;
     showSettings = true;
     if (connectionStatus === 'connected') {
@@ -305,7 +307,7 @@
     }
   }
 
-  function switchTab(tab: 'connection' | 'profile' | 'models') {
+  function switchTab(tab: 'connection' | 'profile' | 'models' | 'agents' | 'skills') {
     settingsTab = tab;
     if (connectionStatus === 'connected') {
       loadTabData(tab);
@@ -385,6 +387,16 @@
           class:active={settingsTab === 'models'}
           on:click={() => switchTab('models')}
         >Modèles</button>
+        <button
+          class="settings-tab"
+          class:active={settingsTab === 'agents'}
+          on:click={() => switchTab('agents')}
+        >Agents</button>
+        <button
+          class="settings-tab"
+          class:active={settingsTab === 'skills'}
+          on:click={() => switchTab('skills')}
+        >Skills</button>
       </div>
 
       <div class="settings-body">
@@ -595,6 +607,18 @@
               Connectez-vous au serveur pour voir les modèles.
             </div>
           {/if}
+        {/if}
+
+        {#if settingsTab === 'agents'}
+          <div class="section-label">Gestion des Agents</div>
+          <AgentsManager on:select={(e) => {
+            showSettings = false;
+          }} />
+        {/if}
+
+        {#if settingsTab === 'skills'}
+          <div class="section-label">Base de Connaissances</div>
+          <SkillsManager />
         {/if}
 
         {#if errorMessage}

@@ -21,6 +21,7 @@ pub struct ChatRequest {
     pub message: String,
     pub conversation_id: Option<String>,
     pub max_tokens: Option<usize>,
+    pub agent_id: Option<String>,
 }
 
 /// Tous les événements émis pendant le pipeline de chat.
@@ -89,6 +90,19 @@ pub async fn process_chat(
     if !state.is_model_loaded() {
         anyhow::bail!("Le modèle n'est pas encore chargé. Veuillez attendre.");
     }
+
+    let (agent, agent_skills) = if let Some(id) = &request.agent_id {
+        let all_agents = state.workspace.list_agents().await.unwrap_or_default();
+        if let Some(a) = all_agents.into_iter().find(|a| &a.id == id) {
+            let all_skills = state.workspace.list_skills().await.unwrap_or_default();
+            let skills: Vec<crate::workspace::skill::Skill> = all_skills.into_iter().filter(|s| a.skills.contains(&s.id)).collect();
+            (Some(a), skills)
+        } else {
+            (None, vec![])
+        }
+    } else {
+        (None, vec![])
+    };
 
     // 0. Filtre hors sujet — bloque avant RAG et LLM
     if is_off_topic(&request.message) {
@@ -199,8 +213,18 @@ pub async fn process_chat(
             .await;
     }
 
+    let should_search_web = if let Some(a) = &agent {
+        if let Some(w) = &a.web_search {
+            w.enabled
+        } else {
+            confidence.should_search_web
+        }
+    } else {
+        confidence.should_search_web
+    };
+
     // 2. Recherche web optionnelle
-    let (web_context, all_sources) = if confidence.should_search_web && !is_conv {
+    let (web_context, all_sources) = if should_search_web && !is_conv {
         let online = state.connectivity.get_or_check().await;
 
         if !online {
@@ -231,7 +255,7 @@ pub async fn process_chat(
                 cached
             } else {
                 match WebSearcher::new() {
-                    Ok(searcher) => match searcher.search(&request.message, category, 3).await {
+                    Ok(searcher) => match searcher.search(&request.message, category, 5).await {
                         Ok(results) => {
                             cache.set(&request.message, category, &results).ok();
                             results
@@ -313,71 +337,151 @@ pub async fn process_chat(
     };
 
     let profile = state.profile.lock().clone();
-    let prompt = build_prompt(&request.message, &full_context, &history, &profile);
+    let prompt = build_prompt(&request.message, &full_context, &history, &profile, agent.as_ref(), &agent_skills);
     tracing::info!(
         "Prompt construit ({} caractères) — lancement de la génération...",
         prompt.len()
     );
 
-    // 4. Génération en streaming (spawn_blocking — CPU-bound)
-    let llm_state = state.llm.clone();
-    let abort_flag = state.abort_generation.clone();
-    abort_flag.store(false, Ordering::SeqCst);
-    let tx_clone = tx.clone();
-    let conv_id_clone = conv_id.clone();
+    // 4. Génération en streaming avec boucle pour Function Calling
+    let mut current_prompt = prompt;
+    let mut final_response = String::new();
+    let mut total_tokens = 0usize;
+    let max_tool_loops = 5;
 
-    let full_response = tokio::task::spawn_blocking(move || {
-        let mut guard = llm_state.lock();
-        let engine = guard
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("Moteur LLM non disponible"))?;
+    for loop_idx in 0..max_tool_loops {
+        let llm_state = state.llm.clone();
+        let abort_flag = state.abort_generation.clone();
+        abort_flag.store(false, Ordering::SeqCst);
+        let tx_clone = tx.clone();
+        let conv_id_clone = conv_id.clone();
+        let prompt_clone = current_prompt.clone();
 
-        tracing::info!("Début du prefill...");
-        let mut streamer = BatchStreamer::new();
-        let mut tokens_count = 0usize;
+        let (response_text, tokens, was_aborted) = tokio::task::spawn_blocking(move || {
+            let mut guard = llm_state.lock();
+            let engine = guard
+                .as_mut()
+                .ok_or_else(|| anyhow::anyhow!("Moteur LLM non disponible"))?;
 
-        let response = engine.generate_streaming(&prompt, max_tokens, |token| {
-            if abort_flag.load(Ordering::SeqCst) {
-                tracing::info!("Génération interrompue par l'utilisateur");
-                return false;
-            }
-            tokens_count += 1;
-            if let Some(batch) = streamer.push(token) {
+            tracing::info!("Début du prefill (loop {})...", loop_idx);
+            let mut streamer = BatchStreamer::new();
+            let mut tokens_count = 0usize;
+            let mut accumulated = String::new();
+            let mut is_tool_aborted = false;
+
+            let response = engine.generate_streaming(&prompt_clone, max_tokens, |token| {
+                if abort_flag.load(Ordering::SeqCst) {
+                    tracing::info!("Génération interrompue par l'utilisateur");
+                    return false;
+                }
+                tokens_count += 1;
+                accumulated.push_str(token);
+
+                if accumulated.contains("</tool_call>") {
+                    is_tool_aborted = true;
+                    return false;
+                }
+
+                if let Some(batch) = streamer.push(token) {
+                    let _ = tx_clone.blocking_send(ChatEvent::StreamToken {
+                        token: batch,
+                        conversation_id: conv_id_clone.clone(),
+                    });
+                }
+                true
+            });
+
+            let response = match response {
+                Ok(r) => r,
+                Err(e) => {
+                    let err_str = format!("{:?}", e);
+                    if err_str.contains("OUT_OF_MEMORY") || err_str.contains("out of memory") {
+                        anyhow::bail!(
+                            "Mémoire GPU insuffisante pour cette requête. \
+                             Essayez avec une question plus courte, ou passez en mode CPU dans les paramètres."
+                        );
+                    }
+                    return Err(e);
+                }
+            };
+
+            if let Some(remaining) = streamer.flush() {
                 let _ = tx_clone.blocking_send(ChatEvent::StreamToken {
-                    token: batch,
+                    token: remaining,
                     conversation_id: conv_id_clone.clone(),
                 });
             }
-            true
-        });
 
-        let response = match response {
-            Ok(r) => r,
-            Err(e) => {
-                let err_str = format!("{:?}", e);
-                if err_str.contains("OUT_OF_MEMORY") || err_str.contains("out of memory") {
-                    anyhow::bail!(
-                        "Mémoire GPU insuffisante pour cette requête. \
-                         Essayez avec une question plus courte, ou passez en mode CPU dans les paramètres."
-                    );
+            Ok::<(String, usize, bool), anyhow::Error>((response, tokens_count, is_tool_aborted))
+        })
+        .await??;
+
+        total_tokens += tokens;
+        final_response.push_str(&response_text);
+        current_prompt.push_str(&response_text);
+
+        if was_aborted && response_text.contains("<tool_call>") {
+            if let Some(start) = response_text.find("<tool_call>") {
+                if let Some(end) = response_text.find("</tool_call>") {
+                    let json_str = &response_text[start + 11..end];
+                    tracing::info!("Tool call détecté : {}", json_str);
+                    if let Ok(tool_call) = serde_json::from_str::<crate::llm::tools::ToolCall>(json_str) {
+                        let _ = tx.send(ChatEvent::StreamToken {
+                            token: format!("\n*(Exécution de l'outil {}...)*\n", tool_call.action),
+                            conversation_id: conv_id.clone(),
+                        }).await;
+                        
+                        let result = if tool_call.action == "delegate_task" {
+                            let target_name = tool_call.args.get("agent_name").and_then(|v| v.as_str()).unwrap_or("");
+                            let task = tool_call.args.get("task").and_then(|v| v.as_str()).unwrap_or("");
+                            
+                            let all_agents = state.workspace.list_agents().await.unwrap_or_default();
+                            let target_agent = all_agents.into_iter().find(|a| a.name.to_lowercase() == target_name.to_lowercase());
+                            
+                            match target_agent {
+                                Some(tgt) => {
+                                    let req = ChatRequest {
+                                        message: task.to_string(),
+                                        conversation_id: None,
+                                        max_tokens: Some(2000),
+                                        agent_id: Some(tgt.id),
+                                    };
+                                    let (sub_tx, mut sub_rx) = tokio::sync::mpsc::channel(100);
+                                    let state_clone = state.clone();
+                                    tokio::spawn(async move {
+                                        while let Some(_) = sub_rx.recv().await {}
+                                    });
+                                    match Box::pin(process_chat(state_clone, req, sub_tx)).await {
+                                        Ok(sub_res) => Ok(sub_res),
+                                        Err(e) => Err(format!("Erreur lors de la délégation : {}", e))
+                                    }
+                                },
+                                None => Err(format!("Agent '{}' introuvable.", target_name))
+                            }
+                        } else {
+                            let allowed_dir = agent.as_ref().and_then(|a| a.working_directory.clone());
+                            crate::llm::tools::execute_tool(&tool_call, &allowed_dir).await
+                        };
+                        
+                        let tool_result_str = match result {
+                            Ok(res) => format!("\n<tool_result>\n{}\n</tool_result>\n", res),
+                            Err(err) => format!("\n<tool_result>\nError: {}\n</tool_result>\n", err),
+                        };
+                        current_prompt.push_str(&tool_result_str);
+                        continue;
+                    } else {
+                        current_prompt.push_str("\n<tool_result>\nError: Invalid JSON\n</tool_result>\n");
+                        continue;
+                    }
                 }
-                return Err(e);
             }
-        };
-
-        if let Some(remaining) = streamer.flush() {
-            let _ = tx_clone.blocking_send(ChatEvent::StreamToken {
-                token: remaining,
-                conversation_id: conv_id_clone.clone(),
-            });
         }
-
-        Ok::<(String, usize), anyhow::Error>((response, tokens_count))
-    })
-    .await??;
+        
+        break; // Pas de tool call valide ou fin de génération
+    }
 
     let elapsed = start_time.elapsed().as_millis() as u64;
-    let cleaned_response = truncate_gibberish(&strip_meta_notes(&full_response.0));
+    let cleaned_response = truncate_gibberish(&strip_meta_notes(&final_response));
 
     // 5. Sauvegarder dans l'historique
     state
@@ -392,7 +496,7 @@ pub async fn process_chat(
             conversation_id: conv_id.clone(),
             full_response: cleaned_response,
             sources: all_sources,
-            tokens_generated: full_response.1,
+            tokens_generated: total_tokens,
             time_ms: elapsed,
         })
         .await;

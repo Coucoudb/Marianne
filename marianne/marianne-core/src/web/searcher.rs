@@ -109,15 +109,13 @@ impl WebSearcher {
         let mut results = Vec::new();
 
         let search_fut = async {
-            // Ajouter "france" et "droit" pour orienter les résultats
-            let enriched_query = format!("{} france droit", query);
-            match self.search_duckduckgo(&enriched_query, exclude_domains).await {
+            match self.search_duckduckgo(query, max_results, exclude_domains).await {
                 Ok(r) => results.extend(r),
                 Err(e) => tracing::debug!("DuckDuckGo échoué : {}", e),
             }
         };
 
-        match tokio::time::timeout(Duration::from_secs(10), search_fut).await {
+        match tokio::time::timeout(Duration::from_secs(15), search_fut).await {
             Ok(()) => {}
             Err(_) => tracing::warn!("Timeout recherche web générale"),
         }
@@ -129,6 +127,7 @@ impl WebSearcher {
     async fn search_duckduckgo(
         &self,
         query: &str,
+        max_results: usize,
         exclude_domains: &HashSet<String>,
     ) -> Result<Vec<WebResult>> {
         let url = format!(
@@ -146,7 +145,7 @@ impl WebSearcher {
         let links = extract_duckduckgo_links(&html, exclude_domains);
 
         let mut results = Vec::new();
-        for (page_url, title) in links.into_iter().take(5) {
+        for (page_url, title) in links.into_iter().take(max_results * 2) {
             match self.fetch_general_page(&page_url).await {
                 Ok(content) if content.len() > 150 && is_coherent_text(&content) => {
                     let snippet = content.chars().take(250).collect::<String>();
@@ -164,7 +163,7 @@ impl WebSearcher {
                 }
                 _ => {}
             }
-            if results.len() >= 3 {
+            if results.len() >= max_results {
                 break;
             }
         }

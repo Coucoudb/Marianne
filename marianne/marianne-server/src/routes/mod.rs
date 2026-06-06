@@ -6,6 +6,7 @@ pub mod history;
 pub mod models;
 pub mod profile;
 pub mod system;
+pub mod workspace;
 
 use crate::state::ServerState;
 use axum::{routing::get, Router};
@@ -41,6 +42,7 @@ fn api_routes() -> Router<ServerState> {
         .route("/models/download", axum::routing::post(models::download_model))
         .route("/models/load", axum::routing::post(models::load_model))
         .route("/models/setup", axum::routing::post(models::setup_model))
+        .nest("/workspace", workspace::router())
 }
 
 async fn health() -> &'static str {

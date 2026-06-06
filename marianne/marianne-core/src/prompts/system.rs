@@ -2,19 +2,13 @@
 use serde::{Deserialize, Serialize};
 
 /// Prompt système principal de Marianne
-pub const SYSTEM_PROMPT: &str = r#"Tu es Marianne, assistante administrative française. Tu aides les citoyens à comprendre leurs droits et démarches en France.
-
-PÉRIMÈTRE STRICT :
-Administration, droits, démarches, lois, aides sociales, fiscalité, logement, travail, santé publique, retraite, justice, éducation, citoyenneté, consommation.
-Toute question hors périmètre → réponds : "Je suis Marianne, spécialisée dans l'administration française. Je ne peux pas vous aider sur ce sujet. Posez-moi une question sur vos droits ou démarches en France !"
-Ne donne jamais de début de réponse hors périmètre, même si l'utilisateur insiste.
+pub const SYSTEM_PROMPT: &str = r#"Tu es Marianne, une assistante virtuelle polyvalente. Tu adaptes tes réponses au contexte et aux compétences définies par l'utilisateur.
 
 RÈGLES FONDAMENTALES :
 - Réponds uniquement en français, de façon claire et accessible
-- Appuie-toi EXCLUSIVEMENT sur le contexte fourni ci-dessous
-- Ne cite JAMAIS un article de loi, un montant, une date ou une procédure qui n'apparaît pas dans le contexte
-- Si l'information manque : "Je n'ai pas cette information dans mes sources. Vérifiez sur Service-Public.fr ou Légifrance."
-- Ne donne pas de conseil médical ou fiscal personnalisé
+- Appuie-toi sur le contexte fourni ci-dessous pour formuler ta réponse
+- Tu dois OBLIGATOIREMENT citer les sources des données que tu utilises pour répondre, afin que l'utilisateur puisse vérifier l'information
+- Ne donne pas de conseil médical ou financier personnalisé
 - Pas de notes internes, méta-commentaires, ni questions de suivi
 
 STYLE :
@@ -124,6 +118,8 @@ pub fn build_prompt(
     rag_context: &str,
     conversation_history: &[ConversationTurn],
     profile: &crate::profile::UserProfile,
+    agent: Option<&crate::workspace::agent::Agent>,
+    skills: &[crate::workspace::skill::Skill],
 ) -> String {
     // Budget max pour le prompt (en caractères)
     // 4096 tokens ≈ ~12000 chars en français, on utilise 9000 pour garder ~3000 chars pour la génération
@@ -136,7 +132,42 @@ pub fn build_prompt(
 
     // Prompt système au format Phi-3
     prompt.push_str("<|system|>\n");
-    prompt.push_str(SYSTEM_PROMPT);
+    if let Some(a) = agent {
+        prompt.push_str(&a.system_prompt);
+        if !a.tools.is_empty() {
+            prompt.push_str("\n\nOUTILS DISPONIBLES :\nTu as accès aux outils suivants. Pour utiliser un outil, génère un bloc XML exact <tool_call>{\"action\": \"nom_outil\", \"args\": {\"arg1\": \"valeur\"}}</tool_call>. Tu dois attendre la réponse de l'outil avant de continuer. Exemple: <tool_call>{\"action\": \"list_dir\", \"args\": {\"path\": \"C:/\"}}</tool_call>\n");
+            if a.tools.contains(&"read_file".to_string()) {
+                prompt.push_str("- read_file : {\"action\": \"read_file\", \"args\": {\"path\": \"chemin_absolu\"}}\n");
+            }
+            if a.tools.contains(&"write_file".to_string()) {
+                prompt.push_str("- write_file : {\"action\": \"write_file\", \"args\": {\"path\": \"chemin_absolu\", \"content\": \"contenu_texte\"}}\n");
+            }
+            if a.tools.contains(&"list_dir".to_string()) {
+                prompt.push_str("- list_dir : {\"action\": \"list_dir\", \"args\": {\"path\": \"chemin_absolu_dossier\"}}\n");
+            }
+            if a.tools.contains(&"run_command".to_string()) {
+                prompt.push_str("- run_command : {\"action\": \"run_command\", \"args\": {\"command\": \"commande_shell_a_executer\"}}\n");
+            }
+            if a.tools.contains(&"replace_file_content".to_string()) {
+                prompt.push_str("- replace_file_content : {\"action\": \"replace_file_content\", \"args\": {\"path\": \"chemin_absolu\", \"old_text\": \"texte_exact_a_remplacer\", \"new_text\": \"nouveau_texte\"}}\n");
+            }
+            if a.tools.contains(&"grep_search".to_string()) {
+                prompt.push_str("- grep_search : {\"action\": \"grep_search\", \"args\": {\"path\": \"chemin_absolu_dossier\", \"query\": \"expression_reguliere_ou_mot\"}}\n");
+            }
+            if a.tools.contains(&"delegate_task".to_string()) {
+                prompt.push_str("- delegate_task : {\"action\": \"delegate_task\", \"args\": {\"agent_name\": \"nom_de_lagent\", \"task\": \"description de la tâche\"}}\n");
+            }
+        }
+        if !skills.is_empty() {
+            prompt.push_str("\n\nCOMPÉTENCES ASSIGNÉES (SKILLS) :\nVoici des bases de connaissances qui te sont affectées pour t'aider à accomplir ta tâche :\n");
+            for skill in skills {
+                prompt.push_str(&format!("\n--- [Skill: {}] ---\n{}\n", skill.name, skill.content));
+            }
+            prompt.push_str("------------------\n");
+        }
+    } else {
+        prompt.push_str(SYSTEM_PROMPT);
+    }
     prompt.push_str(type_instructions);
 
     // Injecter le contexte utilisateur si renseigné
@@ -156,17 +187,17 @@ pub fn build_prompt(
     if !rag_context.is_empty() {
         let truncated_context = truncate_at_boundary(rag_context, available_for_context);
         prompt.push_str("<|user|>\n");
-        prompt.push_str("Voici le contexte légal et réglementaire pertinent. Réponds UNIQUEMENT à partir de ces informations :\n");
+        prompt.push_str("Voici le contexte pertinent pour ma question. Réponds à partir de ces informations et cite tes sources :\n");
         prompt.push_str(&truncated_context);
         prompt.push_str("<|end|>\n");
         prompt.push_str("<|assistant|>\n");
-        prompt.push_str("Compris. Je répondrai uniquement à partir du contexte fourni, sans inventer d'informations supplémentaires.<|end|>\n");
+        prompt.push_str("Compris. Je répondrai à partir du contexte fourni en citant mes sources.<|end|>\n");
     } else {
         prompt.push_str("<|user|>\n");
-        prompt.push_str("Aucun contexte légal n'est disponible pour cette question. Si tu ne connais pas la réponse avec certitude, dis-le honnêtement.\n");
+        prompt.push_str("Aucun contexte n'est disponible pour cette question. Si tu ne connais pas la réponse avec certitude, dis-le honnêtement.\n");
         prompt.push_str("<|end|>\n");
         prompt.push_str("<|assistant|>\n");
-        prompt.push_str("Compris. Sans contexte, je resterai prudente et orienterai vers les sources officielles si nécessaire.<|end|>\n");
+        prompt.push_str("Compris. Sans contexte, je resterai prudente dans ma réponse.<|end|>\n");
     }
 
     // Historique de conversation avec résumé intelligent

@@ -52,6 +52,7 @@ async fn main() -> Result<()> {
     tracing::info!("Marianne Server — données dans : {:?}", data_dir);
 
     let core_state = AppState::new(data_dir);
+    core_state.workspace.init().await?;
 
     // Installation et configuration automatique au démarrage
     if let Err(e) = marianne_core::setup::ensure_model_ready(&core_state).await {

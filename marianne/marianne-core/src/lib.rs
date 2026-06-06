@@ -11,3 +11,4 @@ pub mod setup;
 pub mod state;
 pub mod web;
 pub mod chat;
+pub mod workspace;

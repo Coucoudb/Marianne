@@ -11,6 +11,23 @@ import type {
   LoadRequest
 } from './types';
 
+export interface Agent {
+  id: string;
+  name: string;
+  description: string;
+  system_prompt: string;
+  skills: string[];
+  tools: string[];
+  working_directory?: string;
+}
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  content: string;
+}
+
 /** Get server URL from electron-store via IPC */
 export async function getServerUrl(): Promise<string> {
   const config: ServerConfig = await window.electronAPI.server.getConfig();
@@ -305,6 +322,46 @@ export class ApiClient {
       body: JSON.stringify({})
     });
     return res.json();
+  }
+
+  // --- Workspace (Agents & Skills) ---
+
+  async listAgents(): Promise<Agent[]> {
+    const res = await this.fetch('/api/v1/workspace/agents');
+    const json = await res.json();
+    return json.data || [];
+  }
+
+  async saveAgent(agent: Agent): Promise<Agent> {
+    const res = await this.fetch(agent.id ? `/api/v1/workspace/agents/${agent.id}` : '/api/v1/workspace/agents', {
+      method: agent.id ? 'PUT' : 'POST',
+      body: JSON.stringify(agent)
+    });
+    const json = await res.json();
+    return json.data;
+  }
+
+  async deleteAgent(id: string): Promise<void> {
+    await this.fetch(`/api/v1/workspace/agents/${id}`, { method: 'DELETE' });
+  }
+
+  async listSkills(): Promise<Skill[]> {
+    const res = await this.fetch('/api/v1/workspace/skills');
+    const json = await res.json();
+    return json.data || [];
+  }
+
+  async saveSkill(skill: Skill): Promise<Skill> {
+    const res = await this.fetch(skill.id ? `/api/v1/workspace/skills/${skill.id}` : '/api/v1/workspace/skills', {
+      method: skill.id ? 'PUT' : 'POST',
+      body: JSON.stringify(skill)
+    });
+    const json = await res.json();
+    return json.data;
+  }
+
+  async deleteSkill(id: string): Promise<void> {
+    await this.fetch(`/api/v1/workspace/skills/${id}`, { method: 'DELETE' });
   }
 }
 
