@@ -101,6 +101,23 @@ jobs:
           workspaces: marianne -> target
           key: ${{ matrix.target }}-${{ matrix.variant }}-server
 
+      # ── CUDA ─────────────────────────────────────────────────────────────
+      - name: Install CUDA Toolkit (Linux)
+        if: matrix.platform == 'ubuntu-latest' && matrix.variant == 'cuda'
+        uses: Jimver/cuda-toolkit@v0.2.21
+        with:
+          cuda: '12.6.3'
+          method: 'network'
+          sub-packages: '["-toolkit"]'
+
+      - name: Install CUDA Toolkit (Windows)
+        if: matrix.platform == 'windows-latest' && matrix.variant == 'cuda'
+        uses: Jimver/cuda-toolkit@v0.2.21
+        with:
+          cuda: '12.6.3'
+          method: 'network'
+          sub-packages: '["-toolkit"]'
+
       # ── Vulkan (Windows) ─────────────────────────────────────────────────
       - name: Install Vulkan SDK (Windows)
         if: matrix.platform == 'windows-latest' && matrix.needs-vulkan

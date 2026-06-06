@@ -144,6 +144,20 @@ jobs:
             }
             ```
 
+            **Déploiement avec Docker** :
+            ```bash
+            # Extraire l'archive
+            unzip marianne-web-client-*.zip
+
+            # Lancer nginx avec le dossier dist/
+            docker run --name marianne-web \
+              -p 8080:80 \
+              -v "$(pwd)/dist:/usr/share/nginx/html:ro" \
+              -d nginx
+
+            # Accéder à l'application : http://localhost:8080
+            ```
+
             ---
 
             ### ✨ Fonctionnalités
