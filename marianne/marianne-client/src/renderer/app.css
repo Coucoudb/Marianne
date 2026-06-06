@@ -1,0 +1,127 @@
+:root {
+    /* Couleurs Marianne — tricolore français */
+    --bleu-france: #000091;
+    --bleu-france-light: #1a1aab;
+    --rouge-marianne: #e1000f;
+    --rouge-marianne-soft: #c9191e;
+    --blanc: #ffffff;
+    --or-republique: #c9a759;
+
+    /* Couleurs UI — palette chaude */
+    --bg-primary: #faf8f5;
+    --bg-secondary: #ffffff;
+    --bg-chat: #f5f3ef;
+    --bg-assistant: #ffffff;
+    --text-primary: #1e1e1e;
+    --text-secondary: #6b6b6b;
+    --border: #e5e1da;
+    --border-light: #f0ece6;
+    --accent: var(--bleu-france);
+    --success: #008941;
+    --warning: #e07b00;
+    --error: var(--rouge-marianne);
+
+    /* Ombres */
+    --shadow-sm: 0 1px 3px rgba(30, 30, 30, 0.06);
+    --shadow-md: 0 4px 12px rgba(30, 30, 30, 0.08);
+    --shadow-lg: 0 8px 24px rgba(30, 30, 30, 0.1);
+
+    /* Typographie */
+    --font-family: "Marianne", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-size-base: 0.95rem;
+    --line-height-base: 1.65;
+
+    /* Spacing */
+    --spacing-xs: 0.25rem;
+    --spacing-sm: 0.5rem;
+    --spacing-md: 1rem;
+    --spacing-lg: 1.5rem;
+    --spacing-xl: 2rem;
+
+    /* Radius */
+    --radius-sm: 6px;
+    --radius-md: 12px;
+    --radius-lg: 20px;
+    --radius-xl: 28px;
+    --radius-full: 9999px;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--font-family);
+    font-size: var(--font-size-base);
+    line-height: var(--line-height-base);
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    height: 100vh;
+    overflow: hidden;
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* ─── HEADER ─────────────────────────────────────────────── */
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--spacing-lg);
+    background: var(--bg-secondary);
+    height: 60px;
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    z-index: 10;
+}
+
+.app-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg,
+        var(--bleu-france) 0%, var(--bleu-france) 33.3%,
+        var(--blanc) 33.3%, var(--blanc) 66.6%,
+        var(--rouge-marianne) 66.6%, var(--rouge-marianne) 100%
+    );
+}
+
+.header-logo {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--bleu-france);
+}
+
+button {
+    font-family: var(--font-family);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
+}
