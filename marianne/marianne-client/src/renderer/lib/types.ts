@@ -99,9 +99,81 @@ export interface GpuDevice {
 }
 
 export interface ServerConfig {
+  protocol: 'http' | 'https';
   host: string;
   port: number;
-  protocol: 'http' | 'https';
+}
+
+// ─── Models API ─────────────────────────────────────────────────────────────
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  repo_id: string;
+  filename: string;
+  size_mb: number;
+}
+
+export interface LoadedModel {
+  id: string;
+  name: string;
+  device: string;
+  device_label: string;
+}
+
+export interface ModelsStatus {
+  downloaded_models: ModelInfo[];
+  loaded_model: LoadedModel | null;
+}
+
+export interface DownloadRequest {
+  repo_id: string;
+  filename: string;
+  name: string;
+}
+
+export interface LoadRequest {
+  model_id: string;
+}
+
+// ─── Chat API ───────────────────────────────────────────────────────────────
+
+export interface ChatRequest {
+  user_message: string;
+  conversation_id?: string | null;
+  use_rag?: boolean;
+  use_web_search?: boolean;
+}
+
+export interface StreamTokenEvent {
+  token: string;
+  conversation_id: string;
+}
+
+export interface GenerationDoneEvent {
+  assistant_message: string;
+  conversation_id: string;
+  tokens_generated: number;
+  generation_time_ms: number;
+}
+
+export interface ConfidenceInfo {
+  score: number;
+  level: string;
+  explanation: string;
+}
+
+export interface ContradictionWarning {
+  message: string;
+}
+
+export interface WebSearchStatus {
+  status: string;
+  query: string;
+}
+
+export interface OfflineModeNotification {
+  message: string;
 }
 
 export interface ConversationSummary {

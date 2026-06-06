@@ -95,7 +95,8 @@
       const newConvId = await apiClient.chatStream(
         conversationId,
         prompt,
-        [],
+        true,  // use_rag
+        false, // use_web_search
         (token) => {
           // Stream token
           if (tokenBuffer === '') {
@@ -109,18 +110,30 @@
           msgs = msgs;
         },
         (metadata) => {
-          // Handle metadata (sources, stats, etc.)
-          if (metadata.sources) {
-            assistantMsg.sources = metadata.sources;
+          // Handle metadata events (generation-done, confidence-info, etc.)
+          if (metadata.assistant_message) {
+            // generation-done event
+            assistantMsg.content = metadata.assistant_message;
+            if (metadata.tokens_generated && metadata.generation_time_ms) {
+              assistantMsg.stats = {
+                tokens_generated: metadata.tokens_generated,
+                time_ms: metadata.generation_time_ms
+              };
+            }
           }
-          if (metadata.stats) {
-            assistantMsg.stats = metadata.stats;
+          if (metadata.score !== undefined) {
+            // confidence-info event
+            // Could display confidence level in UI
           }
-          if (metadata.web_badge) {
-            assistantMsg.webBadge = metadata.web_badge;
+          if (metadata.message && metadata.status) {
+            // web-search-status or offline-mode event
+            if (metadata.status === 'searching') {
+              assistantMsg.webBadge = { text: 'Recherche web...', kind: 'searching' };
+            }
           }
-          if (metadata.contradiction_warning) {
-            assistantMsg.contradictionWarning = metadata.contradiction_warning;
+          if (metadata.message && !metadata.status) {
+            // contradiction-warning event
+            assistantMsg.contradictionWarning = metadata.message;
           }
           msgs = msgs;
         },
