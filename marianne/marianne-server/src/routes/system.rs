@@ -3,7 +3,7 @@
 
 use crate::state::ServerState;
 use axum::{extract::State, Json};
-use marianne_core::llm::device::{is_gpu_available, list_backend_devices, LlamaBackendDevice, LlamaBackendDeviceType};
+use marianne_core::llm::device::{list_backend_devices, LlamaBackendDevice, LlamaBackendDeviceType};
 use marianne_core::profile::{DevicePreference, GpuSelection};
 use serde::Serialize;
 

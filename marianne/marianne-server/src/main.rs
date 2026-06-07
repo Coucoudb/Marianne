@@ -19,6 +19,14 @@ struct Cli {
     /// Répertoire de données (modèles, base vectorielle, historique)
     #[arg(short, long)]
     data_dir: Option<std::path::PathBuf>,
+
+    /// Chemin vers le certificat TLS (PEM). Active HTTPS si fourni.
+    #[arg(long)]
+    tls_cert: Option<std::path::PathBuf>,
+
+    /// Chemin vers la clé privée TLS (PEM). Requis si --tls-cert est fourni.
+    #[arg(long)]
+    tls_key: Option<std::path::PathBuf>,
 }
 
 #[tokio::main]
@@ -64,9 +72,35 @@ async fn main() -> Result<()> {
 
     let app = routes::build_router(app_state);
 
-    let listener = tokio::net::TcpListener::bind(&cli.bind).await?;
-    tracing::info!("Écoute sur http://{}", cli.bind);
-    axum::serve(listener, app).await?;
+    // ─── Démarrage avec ou sans TLS ────────────────────────────────
+    match (cli.tls_cert, cli.tls_key) {
+        (Some(cert_path), Some(key_path)) => {
+            // Mode HTTPS avec rustls
+            let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem_file(
+                &cert_path,
+                &key_path,
+            ).await?;
+
+            let addr: std::net::SocketAddr = cli.bind.parse()?;
+            tracing::info!("🔒 Écoute sur https://{} (TLS activé)", addr);
+            axum_server::bind_rustls(addr, tls_config)
+                .serve(app.into_make_service())
+                .await?;
+        }
+        (None, None) => {
+            // Mode HTTP classique (inchangé)
+            let listener = tokio::net::TcpListener::bind(&cli.bind).await?;
+            tracing::info!("Écoute sur http://{}", cli.bind);
+            axum::serve(listener, app).await?;
+        }
+        _ => {
+            anyhow::bail!(
+                "Les options --tls-cert et --tls-key doivent être fournies ensemble.\n\
+                 💡 Exemple : marianne-server --tls-cert cert.pem --tls-key key.pem"
+            );
+        }
+    }
 
     Ok(())
 }
+

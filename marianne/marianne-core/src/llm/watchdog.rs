@@ -15,6 +15,12 @@ pub struct GenerationWatchdog {
     consecutive_repeats: usize,
 }
 
+impl Default for GenerationWatchdog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GenerationWatchdog {
     pub fn new() -> Self {
         Self {

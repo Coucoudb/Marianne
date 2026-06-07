@@ -247,11 +247,10 @@ fn seed_corpus_from_embedded(corpus_dir: &Path) {
                 let path = entry.path();
                 if path.extension().and_then(|e| e.to_str()) == Some("md") {
                     let dest = corpus_dir.join(path.file_name().unwrap());
-                    if !dest.exists() {
-                        if std::fs::copy(&path, &dest).is_ok() {
+                    if !dest.exists()
+                        && std::fs::copy(&path, &dest).is_ok() {
                             copied += 1;
                         }
-                    }
                 }
             }
         }
@@ -317,7 +316,10 @@ where
         file.write_all(&chunk).context("Impossible d'écrire dans le fichier")?;
         downloaded += chunk.len() as u64;
 
-        let percent = if total_size > 0 { (downloaded * 100 / total_size) as u32 } else { 0 };
+        let percent = downloaded
+            .checked_mul(100)
+            .and_then(|v| v.checked_div(total_size))
+            .unwrap_or(0) as u32;
         on_progress(DownloadProgress {
             filename: filename.to_string(),
             downloaded_mb: downloaded / 1_048_576,

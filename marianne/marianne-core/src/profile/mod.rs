@@ -2,23 +2,22 @@ use std::path::Path;
 
 /// Préférence de device pour le modèle LLM
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Default)]
 pub enum DevicePreference {
     /// Utiliser le GPU si disponible (défaut)
+    #[default]
     Gpu,
     /// Forcer le mode CPU
     Cpu,
 }
 
-impl Default for DevicePreference {
-    fn default() -> Self {
-        Self::Gpu
-    }
-}
 
 /// Sélection du GPU à utiliser
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Default)]
 pub enum GpuSelection {
     /// Utiliser automatiquement le premier GPU détecté (défaut)
+    #[default]
     Auto,
     /// Utiliser un GPU spécifique par son index
     Specific(i32),
@@ -26,11 +25,6 @@ pub enum GpuSelection {
     AllGpus,
 }
 
-impl Default for GpuSelection {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct UserProfile {

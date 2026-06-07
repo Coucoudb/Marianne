@@ -157,11 +157,34 @@ pub fn build_prompt(
             if a.tools.contains(&"delegate_task".to_string()) {
                 prompt.push_str("- delegate_task : {\"action\": \"delegate_task\", \"args\": {\"agent_name\": \"nom_de_lagent\", \"task\": \"description de la tâche\"}}\n");
             }
+            prompt.push_str("- load_skill : {\"action\": \"load_skill\", \"args\": {\"skill_name\": \"nom_du_skill\"}}\n");
         }
         if !skills.is_empty() {
             prompt.push_str("\n\nCOMPÉTENCES ASSIGNÉES (SKILLS) :\nVoici des bases de connaissances qui te sont affectées pour t'aider à accomplir ta tâche :\n");
+            
+            let working_dir = a.working_directory.clone();
+            
             for skill in skills {
-                prompt.push_str(&format!("\n--- [Skill: {}] ---\n{}\n", skill.name, skill.content));
+                let mut should_inject_full = false;
+                
+                if skill.scope.is_none() {
+                    should_inject_full = true;
+                } else if let Some(ref wd) = working_dir {
+                    if let Some(ref pattern) = skill.scope {
+                        let full_pattern = std::path::Path::new(wd).join(pattern).to_string_lossy().to_string();
+                        if let Ok(mut paths) = glob::glob(&full_pattern) {
+                            if paths.next().is_some() {
+                                should_inject_full = true;
+                            }
+                        }
+                    }
+                }
+
+                if should_inject_full {
+                    prompt.push_str(&format!("\n--- [Skill: {}] ---\n{}\n", skill.name, skill.content));
+                } else {
+                    prompt.push_str(&format!("- {} : {} (non pertinent pour les fichiers actuels — utilise load_skill si besoin)\n", skill.name, skill.description));
+                }
             }
             prompt.push_str("------------------\n");
         }

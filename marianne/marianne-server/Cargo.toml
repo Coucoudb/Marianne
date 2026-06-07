@@ -14,6 +14,7 @@ marianne-core = { path = "../marianne-core" }
 
 # HTTP server
 axum = { version = "0.7", features = ["macros"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 

@@ -38,8 +38,8 @@ pub async fn ingest_web_results(
             continue; // Contenu trop court ou de mauvaise qualité, pas utile
         }
 
-        let source = format!("web:{}", result.source_name);
-        let chunks = semantic_chunk(&result.content, 800, 100);
+        let source = result.source_name.clone();
+        let chunks = semantic_chunk(&result.content, 800);
 
         for chunk_text in chunks {
             // Déduplication par xxhash
@@ -81,8 +81,8 @@ pub async fn ingest_web_results(
                 KnowledgeChunk {
                     id: Uuid::new_v4().to_string(),
                     text: text.to_string(),
-                    source: chunk_meta[idx].0.clone(),
-                    category: chunk_meta[idx].1.clone(),
+                    source: format!("web:{}", chunk_meta[idx].0),
+                    tags: chunk_meta[idx].1.clone(),
                     embedding: embedding.clone(),
                 }
             })

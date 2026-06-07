@@ -267,7 +267,7 @@ impl LlmEngine {
                     hint.push_str("\n   • Que le chemin est correct et accessible");
                 }
                 
-                anyhow::anyhow!("{} : {:?}\n{}", hint, e, if hint.contains("💡") { "" } else { "" })
+                anyhow::anyhow!("{} : {:?}", hint, e)
             })?;
 
         let device_label = if n_gpu_layers > 0 && has_gpu { "GPU" } else { "CPU" };

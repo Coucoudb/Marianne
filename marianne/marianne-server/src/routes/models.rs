@@ -8,7 +8,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use marianne_core::models::{load_installed_models, InstalledModel};
+use marianne_core::models::load_installed_models;
 use marianne_core::setup::download_model_from_huggingface;
 use serde::{Deserialize, Serialize};
 

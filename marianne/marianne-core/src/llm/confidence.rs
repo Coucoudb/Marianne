@@ -1,5 +1,5 @@
-/// Évaluation de la confiance de la réponse RAG locale
-/// Si le score est bas, Marianne déclenche la recherche web complémentaire
+//! Évaluation de la confiance de la réponse RAG locale
+//! Si le score est bas, Marianne déclenche la recherche web complémentaire
 
 /// Seuil de base de confiance pour ne pas déclencher la recherche web
 const BASE_CONFIDENCE_THRESHOLD: f32 = 0.45;

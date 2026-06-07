@@ -26,7 +26,10 @@ export interface Skill {
   name: string;
   description: string;
   content: string;
+  scope?: string;
 }
+
+export type SaveLevel = 'global' | 'server' | 'project';
 
 /** Get server URL from electron-store via IPC */
 export async function getServerUrl(): Promise<string> {
@@ -354,8 +357,9 @@ export class ApiClient {
     return json.data || [];
   }
 
-  async saveAgent(agent: Agent): Promise<Agent> {
-    const res = await this.fetch(agent.id ? `/api/v1/workspace/agents/${agent.id}` : '/api/v1/workspace/agents', {
+  async saveAgent(agent: Agent, level: SaveLevel = 'server'): Promise<Agent> {
+    const endpoint = agent.id ? `/api/v1/workspace/agents/${agent.id}?level=${level}` : `/api/v1/workspace/agents?level=${level}`;
+    const res = await this.fetch(endpoint, {
       method: agent.id ? 'PUT' : 'POST',
       body: JSON.stringify(agent)
     });
@@ -373,8 +377,9 @@ export class ApiClient {
     return json.data || [];
   }
 
-  async saveSkill(skill: Skill): Promise<Skill> {
-    const res = await this.fetch(skill.id ? `/api/v1/workspace/skills/${skill.id}` : '/api/v1/workspace/skills', {
+  async saveSkill(skill: Skill, level: SaveLevel = 'server'): Promise<Skill> {
+    const endpoint = skill.id ? `/api/v1/workspace/skills/${skill.id}?level=${level}` : `/api/v1/workspace/skills?level=${level}`;
+    const res = await this.fetch(endpoint, {
       method: skill.id ? 'PUT' : 'POST',
       body: JSON.stringify(skill)
     });

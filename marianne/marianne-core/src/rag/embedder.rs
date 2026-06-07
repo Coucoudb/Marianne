@@ -27,7 +27,7 @@ mod backend {
 
         let mut options = InitOptions::default();
         options.model_name = EmbeddingModel::MultilingualE5Small;
-        options.cache_dir = cache_dir.into();
+        options.cache_dir = cache_dir;
         options.show_download_progress = true;
         let model = TextEmbedding::try_new(options)?;
 

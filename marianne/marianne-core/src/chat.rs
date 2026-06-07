@@ -449,7 +449,7 @@ pub async fn process_chat(
                                     let (sub_tx, mut sub_rx) = tokio::sync::mpsc::channel(100);
                                     let state_clone = state.clone();
                                     tokio::spawn(async move {
-                                        while let Some(_) = sub_rx.recv().await {}
+                                        while sub_rx.recv().await.is_some() {}
                                     });
                                     match Box::pin(process_chat(state_clone, req, sub_tx)).await {
                                         Ok(sub_res) => Ok(sub_res),
@@ -457,6 +457,13 @@ pub async fn process_chat(
                                     }
                                 },
                                 None => Err(format!("Agent '{}' introuvable.", target_name))
+                            }
+                        } else if tool_call.action == "load_skill" {
+                            let skill_name = tool_call.args.get("skill_name").and_then(|v| v.as_str()).unwrap_or("");
+                            let all_skills = state.workspace.list_skills().await.unwrap_or_default();
+                            match all_skills.into_iter().find(|s| s.name.to_lowercase() == skill_name.to_lowercase()) {
+                                Some(skill) => Ok(skill.content),
+                                None => Err(format!("Skill '{}' introuvable.", skill_name))
                             }
                         } else {
                             let allowed_dir = agent.as_ref().and_then(|a| a.working_directory.clone());

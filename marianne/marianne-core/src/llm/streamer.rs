@@ -14,6 +14,12 @@ pub struct BatchStreamer {
     first_token_sent: bool,
 }
 
+impl Default for BatchStreamer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BatchStreamer {
     pub fn new() -> Self {
         Self {

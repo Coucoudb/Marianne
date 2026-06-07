@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
-  import { apiClient, type Agent, type Skill } from '../lib/api';
+  import { apiClient, type Agent, type Skill, type SaveLevel } from '../lib/api';
   import { slide, fade } from 'svelte/transition';
 
   let agents: Agent[] = [];
   let availableSkills: Skill[] = [];
   let loading = true;
   let editingAgent: Agent | null = null;
+  let saveLevel: SaveLevel = 'server';
   
   const dispatch = createEventDispatcher();
 
@@ -58,7 +59,7 @@
   async function saveAgent() {
     if (!editingAgent) return;
     try {
-      await apiClient.saveAgent(editingAgent);
+      await apiClient.saveAgent(editingAgent, saveLevel);
       await loadAgents();
       editingAgent = null;
     } catch (e) {
@@ -95,6 +96,14 @@
       <div class="form-group">
         <label>Description</label>
         <input bind:value={editingAgent.description} type="text" placeholder="Courte description" />
+      </div>
+      <div class="form-group">
+        <label>Sauvegarder dans :</label>
+        <select bind:value={saveLevel}>
+          <option value="server">Serveur (Défaut, stockage global Marianne)</option>
+          <option value="project">Projet (Dossier .marianne du projet actuel, idéal pour Git)</option>
+          <option value="global">Global (Préférences utilisateur, ~/.marianne)</option>
+        </select>
       </div>
       <div class="form-group">
         <label>Prompt Système</label>
@@ -258,7 +267,7 @@
     color: var(--text-muted);
   }
 
-  .form-group input, .form-group textarea {
+  .form-group input, .form-group textarea, .form-group select {
     width: 100%;
     padding: 0.7rem;
     background: var(--surface-1);
@@ -268,7 +277,7 @@
     font-family: inherit;
   }
   
-  .form-group input:focus, .form-group textarea:focus {
+  .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
     border-color: var(--primary-color);
     outline: none;
   }

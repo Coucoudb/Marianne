@@ -45,7 +45,7 @@ impl Retriever {
         &self,
         question: &str,
         top_k: usize,
-        category: Option<&str>,
+        tags: Option<&str>,
     ) -> Result<Vec<RankedResult>> {
         // 1. Expansion de requête via le Knowledge Graph
         let expanded_terms = self.expand_query(question);
@@ -62,8 +62,8 @@ impl Retriever {
         // 4. Fusion RRF des deux listes
         let fused = self.rrf_fusion(&semantic_results, &fts_results);
 
-        // 5. Re-ranking (autorité, fraîcheur, catégorie)
-        let ranked = self.rerank(fused, category);
+        // 5. Re-ranking (autorité, fraîcheur, tags)
+        let ranked = self.rerank(fused, tags);
 
         // 6. Tronquer au top_k final
         let final_results: Vec<RankedResult> = ranked.into_iter().take(top_k).collect();
@@ -179,7 +179,7 @@ impl Retriever {
     }
 
     /// Re-ranking multi-facteurs
-    fn rerank(&self, results: Vec<SearchResult>, category: Option<&str>) -> Vec<RankedResult> {
+    fn rerank(&self, results: Vec<SearchResult>, tags: Option<&str>) -> Vec<RankedResult> {
         let mut ranked: Vec<RankedResult> = results
             .into_iter()
             .map(|r| {
@@ -194,9 +194,9 @@ impl Retriever {
                     score += FRESHNESS_BOOST;
                 }
 
-                // Boost de catégorie : si la source correspond à la catégorie détectée
-                if let Some(cat) = category {
-                    if source_matches_category(&r.source, cat) {
+                // Boost de catégorie : si la source correspond au tag détecté
+                if let Some(tag) = tags {
+                    if source_matches_category(&r.source, tag) {
                         score += CATEGORY_BOOST;
                     }
                 }

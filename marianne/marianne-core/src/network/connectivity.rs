@@ -25,6 +25,12 @@ pub struct ConnectivityCache {
     check_interval: Duration,
 }
 
+impl Default for ConnectivityCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConnectivityCache {
     pub fn new() -> Self {
         Self {

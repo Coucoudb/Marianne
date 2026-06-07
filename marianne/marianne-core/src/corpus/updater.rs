@@ -150,8 +150,8 @@ impl CorpusUpdater {
         let source_tag = format!("corpus:{}", name);
         self.store.delete_by_source(&source_tag).await?;
 
-        // 4. Découper et ingérer
-        let chunks = semantic_chunk(&text, 800, 100);
+        // Découper le nouveau texte en chunks avec la nouvelle signature
+        let chunks = semantic_chunk(&text, 800);
 
         #[cfg(feature = "fastembed")]
         {
@@ -164,7 +164,7 @@ impl CorpusUpdater {
                         id: uuid::Uuid::new_v4().to_string(),
                         text: text.clone(),
                         source: source_tag.clone(),
-                        category: category.to_string(),
+                        tags: category.to_string(),
                         embedding: emb.clone(),
                     })
                     .collect();

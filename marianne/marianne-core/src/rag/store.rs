@@ -14,7 +14,7 @@ pub struct KnowledgeChunk {
     pub id: String,
     pub text: String,
     pub source: String,
-    pub category: String,
+    pub tags: String,
     pub embedding: Vec<f32>,
 }
 
@@ -48,7 +48,7 @@ mod backend {
                 Field::new("id", DataType::Utf8, false),
                 Field::new("text", DataType::Utf8, false),
                 Field::new("source", DataType::Utf8, false),
-                Field::new("category", DataType::Utf8, false),
+                Field::new("tags", DataType::Utf8, false),
                 Field::new(
                     "embedding",
                     DataType::FixedSizeList(
@@ -94,7 +94,7 @@ mod backend {
             let ids: Vec<&str> = chunks.iter().map(|c| c.id.as_str()).collect();
             let texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
             let sources: Vec<&str> = chunks.iter().map(|c| c.source.as_str()).collect();
-            let categories: Vec<&str> = chunks.iter().map(|c| c.category.as_str()).collect();
+            let tags: Vec<&str> = chunks.iter().map(|c| c.tags.as_str()).collect();
 
             let flat_embeddings: Vec<f32> = chunks.iter()
                 .flat_map(|c| c.embedding.iter().cloned())
@@ -110,7 +110,7 @@ mod backend {
                 Arc::new(StringArray::from(ids)),
                 Arc::new(StringArray::from(texts)),
                 Arc::new(StringArray::from(sources)),
-                Arc::new(StringArray::from(categories)),
+                Arc::new(StringArray::from(tags)),
                 Arc::new(embedding_array),
             ])?)
         }
@@ -145,7 +145,7 @@ mod backend {
             &self,
             query_embedding: Vec<f32>,
             top_k: usize,
-            category_filter: Option<&str>,
+            tags_filter: Option<&str>,
         ) -> Result<Vec<SearchResult>> {
             let conn = self.connect().await?;
             let tables = conn.table_names().execute().await?;
@@ -162,12 +162,12 @@ mod backend {
                 .limit(top_k)
                 .distance_type(lancedb::DistanceType::Cosine);
 
-            if let Some(cat) = category_filter {
-                // Sanitize: only allow alphanumeric + underscore for category
-                let safe_cat: String = cat.chars()
+            if let Some(tag) = tags_filter {
+                let safe_tag: String = tag.chars()
                     .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
                     .collect();
-                query = query.only_if(format!("category = '{}'", safe_cat));
+                // Utiliser LIKE '%tag%' puisque tags est un JSON array stringifié
+                query = query.only_if(format!("tags LIKE '%{}%'", safe_tag));
             }
 
             let results = query.execute().await?.try_collect::<Vec<_>>().await?;
@@ -374,13 +374,13 @@ mod backend {
             &self,
             query_embedding: Vec<f32>,
             top_k: usize,
-            category_filter: Option<&str>,
+            tags_filter: Option<&str>,
         ) -> Result<Vec<SearchResult>> {
             let store = self.chunks.read();
 
             let mut scored: Vec<SearchResult> = store.iter()
                 .filter(|c| {
-                    category_filter.map_or(true, |cat| c.category == cat)
+                    tags_filter.map_or(true, |tag| c.tags.contains(tag))
                 })
                 .map(|c| {
                     let sim = cosine_similarity(&query_embedding, &c.embedding);
