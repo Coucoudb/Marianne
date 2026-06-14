@@ -209,7 +209,7 @@ jobs:
           Compress-Archive -Path $src -DestinationPath $dest
 
       - name: Package (Linux / macOS)
-        if: !startsWith(matrix.platform, 'windows')
+        if: "!startsWith(matrix.platform, 'windows')"
         shell: bash
         run: |
           BIN="marianne/target/${{ matrix.target }}/release/marianne-server"
