@@ -3,8 +3,8 @@
 [![Release](https://img.shields.io/github/v/release/Coucoudb/Marianne?style=flat-square)](https://github.com/Coucoudb/Marianne/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
-> Application desktop souveraine, 100% locale, sans cloud, sans serveur, avec LLM embarqué.
-> Vos données ne quittent jamais votre ordinateur.
+> Assistant IA souverain, 100% local.
+> Vos données ne quittent jamais votre contrôle.
 
 ## Présentation
 
@@ -16,363 +16,126 @@
 - 🧭 Naviguer dans les démarches administratives
 - 📑 Analyser des documents PDF (relevés, courriers officiels)
 
-Le tout **sans internet obligatoire**, sans compte, sans données envoyées nulle part.
+Le tout **sans cloud obligatoire**, sans compte distant, sans que vos données personnelles ne soient envoyées à des tiers.
 
 ## Fonctionnalités
 
-- **LLM local** — Inférence via llama.cpp (accélération GPU CUDA/Vulkan/Metal)
-- **Modèles Dynamiques** — Téléchargement, gestion et remplacement automatique de modèles GGUF depuis HuggingFace
-- **Système Multi-Agents** — Création d'agents spécialisés, gestion de prompts, d'outils et de bases de connaissances ("Skills")
-- **Outils Agentiques (Function Calling)** — Exécution de commandes (`run_command`), recherche (`grep_search`), modification chirurgicale de fichiers (`replace_file_content`)
-- **Délégation** — Capacité pour un agent de déléguer des sous-tâches à d'autres agents de manière autonome
-- **RAG hybride** — Base vectorielle LanceDB + graphe de connaissances petgraph
-- **Corpus & Skills** — Injection dynamique de documentation pour guider les agents
-- **Recherche web** — Sources officielles ou recherche généraliste configurables
-- **Analyse PDF & Fichiers** — Extraction de texte et lecture de fichiers système
-- **Historique** — Conversations sauvegardées localement (SQLite)
-- **Streaming** — Réponses en temps réel token par token
-- **API HTTP** — Serveur Axum avec streaming SSE pour intégrations tiers
-
-## Stack technique
-
-| Composant | Technologie |
-|---|---|
-| Core métier | **Rust** (`marianne-core`) |
-| Serveur HTTP | **Axum 0.7** + SSE (`marianne-server`) |
-| Client UI | **Svelte 5** + Vite + TS (`marianne-client`) |
-| LLM | **llama-cpp-2** (GGUF — compatible tout modèle) |
-| GPU | **Vulkan** (principal) · CUDA · Metal (optionnel) |
-| RAG | **GraphRAG hybride** (LanceDB vectoriel + petgraph) |
-| Embeddings | fastembed (multilingual-e5-small, 384 dims) |
-| Historique | SQLite (sqlx) |
+- **LLM 100% Local** — Inférence rapide via llama.cpp (accélération GPU CUDA/Vulkan/Metal). Gestion dynamique des modèles GGUF (téléchargement depuis HuggingFace ou import local).
+- **Système Multi-Agents** — Création d'agents spécialisés avec gestion autonome de prompts, d'outils et de délégation de tâches.
+- **Outils Agentiques (Function Calling)** — Exécution de commandes terminal, recherche locale, et actions sur les fichiers système.
+- **RAG Hybride** — Base vectorielle LanceDB couplée à un graphe de connaissances (petgraph) pour des réponses sourcées sur la loi française.
+- **Corpus Juridique Intégré** — Fiches pratiques et textes de loi injectés dynamiquement ("Skills").
+- **Recherche Web Souveraine** — Interrogation de sources officielles (service-public.fr, etc.) ou recherche générale avec enrichissement automatique du RAG.
+- **Analyse de Fichiers** — Extraction de texte depuis des documents locaux (PDF, TXT, MD).
+- **Historique & Profil** — Sauvegarde locale des conversations (SQLite) et profil utilisateur persistant.
+- **Architecture Client-Serveur** — Interface Electron légère et backend Rust puissant (séparables sur le réseau local).
 
 ## Architecture
 
-```
-marianne/                          ← Workspace Cargo
-├── marianne-core/                 ← 🧠 Logique métier (sans Tauri ni HTTP)
-│   └── src/
-│       ├── chat.rs                ←  Pipeline chat → Sender<ChatEvent>
-│       ├── state.rs               ←  AppState (Clone, Arc partout)
-│       ├── llm/                   ←  Moteur llama.cpp
-│       ├── rag/                   ←  GraphRAG (LanceDB + petgraph)
-│       ├── web/                   ←  Recherche web + cache
-│       ├── documents/             ←  Extraction PDF
-│       ├── prompts/               ←  Système de prompt dynamique avec injection de Skills
-│       ├── workspace/             ←  Système Agentique (agents.rs, skills.rs, tools.rs)
-│       ├── history/               ←  SQLite
-│       ├── profile/               ←  Profil utilisateur
-│       ├── network/               ←  Connectivité
-│       └── models.rs              ←  Gestion dynamique (download, delete, load) des modèles GGUF
-│
-├── src-tauri/                     ← 🖥️ App desktop (thin layer)
-│   └── src/
-│       ├── main.rs                ←  marianne_lib::run()
-│       ├── lib.rs                 ←  Bootstrap Tauri + re-exports core
-│       └── commands/              ←  IPC → core (chat, setup, profile…)
-│
-├── marianne-server/               ← ⚙️ Serveur HTTP binaire
-│   └── src/
-│       ├── main.rs                ←  Axum bootstrap (--bind, --data-dir)
-│       ├── state.rs               ←  Arc<ServerState>
-│       └── routes/
-│           ├── chat.rs            ←  POST /api/v1/chat → SSE
-│           ├── history.rs         ←  GET /api/v1/history/:id
-│           ├── profile.rs         ←  GET/PUT /api/v1/profile
-│           ├── models.rs          ←  POST /api/v1/models/replace, DELETE /api/v1/models/:id
-│           ├── workspace.rs       ←  CRUD Agents & Skills
-│           └── documents.rs       ←  POST /api/v1/documents/extract
-│
-└── frontend/                      ← Interface WebView Tauri actuelle
-```
+Marianne AI a migré vers une architecture moderne **Client-Serveur** :
 
-**Principe clé** : `marianne_core::chat::process_chat(state, request, tx: Sender<ChatEvent>)` est le seul point d'entrée du pipeline. Tauri mappe `ChatEvent` → `window.emit()`, Axum le mappe → SSE. Le core ne sait pas qui écoute.
+1. **`marianne-server` (Backend Rust)**
+   - Serveur HTTP (Axum) exposant une API REST et du streaming SSE.
+   - Héberge le modèle LLM, la base vectorielle, et orchestre le système multi-agents.
+2. **`marianne-client` (Frontend Electron)**
+   - Application de bureau légère (Svelte 5 + Vite + TypeScript).
+   - Se connecte au serveur local ou distant.
+   - Fournit l'interface utilisateur, l'accès au système de fichiers local et un terminal intégré.
+3. **`marianne-core` (Bibliothèque Rust)**
+   - Coeur logique partagé contenant l'intégration llama.cpp, le GraphRAG et les agents.
+
+Cette séparation permet d'héberger le serveur gourmand en ressources sur une machine puissante (NAS, PC Fixe avec GPU) tout en utilisant l'application depuis un ordinateur plus modeste.
 
 ## Prérequis
 
 - **Rust** ≥ 1.75 (`rustup`)
-- **Tauri CLI** v2 (`cargo install tauri-cli --version "^2.0"`)
+- **Node.js** ≥ 18 + npm (pour le client Electron)
 - **CMake** ≥ 3.21
-- Windows : Visual Studio Build Tools (MSVC) + WebView2
+- Windows : Visual Studio Build Tools (MSVC)
 - *Optionnel* : **CUDA Toolkit** ≥ 12.0 + GPU NVIDIA (pour accélération CUDA)
 - *Optionnel* : **Vulkan SDK** (pour accélération GPU universelle)
 
-## ⚡ Compilation avec support GPU
+## Démarrage rapide
 
-**Par défaut, llama.cpp est compilé en mode CPU uniquement** (aucune feature GPU activée).
+L'application nécessite de lancer à la fois le serveur et le client.
 
-Pour bénéficier de l'accélération GPU, vous devez compiler avec les features appropriées :
+### 1. Démarrer le Serveur (Backend)
+
+Ouvrez un terminal et placez-vous à la racine du projet :
+
+```bash
+cd marianne/marianne-server
+
+# Mode CPU (par défaut)
+cargo run --release
+
+# Ou avec accélération GPU NVIDIA (recommandé si disponible)
+cargo run --release --features cuda
+
+# Le serveur écoute par défaut sur http://0.0.0.0:3000
+```
+
+### 2. Démarrer le Client (Frontend)
+
+Ouvrez un second terminal à la racine du projet :
+
+```bash
+cd marianne/marianne-client
+
+# Installation des dépendances (la première fois)
+npm install
+
+# Lancement de l'application de bureau
+npm run dev
+```
+
+Au premier lancement, le client vous demandera de configurer la connexion au serveur (par défaut `http://127.0.0.1:3000`).
+
+## ⚡ Compilation du serveur avec support GPU
+
+**Par défaut, le serveur est compilé en mode CPU uniquement**. Pour des performances optimales, compilez le serveur avec le support matériel approprié :
 
 ### GPU NVIDIA (CUDA) — Performances maximales
 ```bash
-# Prérequis : CUDA Toolkit ≥ 12.0 + pilote NVIDIA récent
+# Prérequis : CUDA Toolkit ≥ 12.0
+cd marianne/marianne-server
 cargo build --release --features cuda
-
-# App desktop
-cargo tauri build --features cuda
-
-# Serveur HTTP
-cargo build -p marianne-server --release --features cuda
 ```
 
-### GPU Universel (Vulkan) — Compatible AMD, NVIDIA, Intel
+### GPU Universel (Vulkan) — AMD, Intel, NVIDIA
 ```bash
-# Prérequis : Vulkan SDK installé + pilotes à jour
+# Prérequis : Vulkan SDK
+cd marianne/marianne-server
 cargo build --release --features vulkan
-
-# App desktop
-cargo tauri build --features vulkan
-
-# Serveur HTTP
-cargo build -p marianne-server --release --features vulkan
 ```
 
-### GPU Apple Silicon (Metal) — macOS uniquement
+### Apple Silicon (Metal) — macOS (M1/M2/M3)
 ```bash
-# Prérequis : macOS avec puce M1/M2/M3
+cd marianne/marianne-server
 cargo build --release --features metal
-
-# App desktop
-cargo tauri build --features metal
-
-# Serveur HTTP
-cargo build -p marianne-server --release --features metal
 ```
-
-### Recommandations
-- **RTX 3060/4070/4090** → Utilisez `cuda` (meilleure performance)
-- **AMD RX 6000/7000** → Utilisez `vulkan` (seul support disponible)
-- **GPU intégré Intel** → Utilisez `vulkan` (support basique)
-- **Apple M1/M2/M3** → Utilisez `metal` (natif Apple Silicon)
-- **CPU uniquement** → Aucune feature nécessaire (par défaut)
-
-⚠️ **Important** : Si vous démarrez l'application et voyez "Mode CPU" alors que vous avez un GPU, c'est que llama.cpp a été compilé sans support GPU. Recompilez avec la feature appropriée.
-
-## Démarrage rapide
-
-```bash
-cd marianne
-
-# App desktop — CPU (par défaut)
-cargo tauri dev
-
-# App desktop — GPU Vulkan (universel)
-cargo tauri dev --features vulkan
-
-# App desktop — GPU CUDA (NVIDIA uniquement, optimal)
-cargo tauri dev --features cuda
-
-# Serveur HTTP — CPU (par défaut)
-cargo run -p marianne-server -- --bind 0.0.0.0:3000
-
-# Serveur HTTP — GPU Vulkan
-cargo run -p marianne-server --features vulkan -- --bind 0.0.0.0:3000
-
-# Serveur HTTP — GPU CUDA
-cargo run -p marianne-server --features cuda -- --bind 0.0.0.0:3000
-```
-
-Au premier lancement, configurez et téléchargez un modèle GGUF depuis l'interface (HuggingFace ou chemin local).
-
-## API HTTP (`marianne-server`)
-
-| Méthode | Route | Description |
-|---|---|---|
-| `POST` | `/api/v1/chat` | Chat en streaming SSE |
-| `GET` | `/api/v1/history/:id` | Historique d'une conversation |
-| `GET` | `/api/v1/profile` | Profil utilisateur |
-| `PUT` | `/api/v1/profile` | Mettre à jour le profil |
-| `POST` | `/api/v1/documents/extract` | Extraction de texte PDF |
-| `GET` | `/health` | Healthcheck |
-
-Exemple de consommation SSE :
-```typescript
-const es = new EventSource('/api/v1/chat');
-es.addEventListener('stream-token', e => append(JSON.parse(e.data).token));
-es.addEventListener('generation-done', e => finalize(JSON.parse(e.data)));
-```
-
-## Features Cargo
-
-| Feature | Description |
-|---|---|
-| `default` | `custom-protocol` (Tauri) |
-| `vulkan` | Accélération GPU Vulkan (principal — AMD, NVIDIA, Intel) |
-| `cuda` | Accélération GPU NVIDIA CUDA (alternative) |
-| `metal` | Accélération Apple Silicon |
-| `vectordb` | Base vectorielle LanceDB |
-| `fastembed` | Embeddings locaux multilingual-e5-small |
-
-## Vérification
-
-```bash
-# Sans CUDA/MSVC (rapide)
-cargo check -p marianne-server
-cargo check -p marianne --no-default-features
-
-# Avec CUDA (nécessite l'environnement MSVC + NVCC)
-cargo check -p marianne --features cuda
-```
-
-## Phases de développement
-
-- [x] **Phase 1** — Squelette Tauri + architecture modules
-- [x] **Phase 2** — Moteur LLM (llama-cpp-2, GPU CUDA)
-- [x] **Phase 3** — Pipeline GraphRAG complet (LanceDB + petgraph)
-- [x] **Phase 4** — Interface utilisateur (streaming, markdown)
-- [x] **Phase 5** — Fonctionnalités métier (corpus juridique, profils)
-- [x] **Phase 6** — Optimisations performances (GPU, sampling)
-- [x] **Phase 7** — Workspace multi-crates (core / tauri / server)
-- [x] **Phase 8** — Recherche web souveraine + feedback loop RAG
-- [ ] **Phase 9** — Frontend Svelte (`marianne-web`) + distribution
-
-## Contribuer
-
-```bash
-cd marianne
-cargo check -p marianne-server        # Vérifie core + server
-cargo check -p marianne --no-default-features  # Vérifie la couche Tauri
-cargo test
-```
-
-## Licence
-
-MIT — Projet souverain français, données locales uniquement.
-
-
-## Présentation
-
-**Marianne AI** est une intelligence artificielle locale qui aide les citoyens français à :
-
-- 📄 Comprendre un courrier administratif en langage clair
-- ⚖️ Connaître leurs droits (travail, CAF, URSSAF, logement, retraite, santé)
-- ✍️ Rédiger des lettres de réclamation / contestation
-- 🧭 Naviguer dans les démarches administratives
-- 📑 Analyser des documents PDF (relevés, courriers officiels)
-
-Le tout **sans internet obligatoire**, sans compte, sans données envoyées nulle part.
-
-## Fonctionnalités v0.0.1
-
-- **LLM local** — Inférence Phi-3-Mini 3.8B via llama.cpp (accélération GPU CUDA)
-- **RAG hybride** — Base vectorielle LanceDB + graphe de connaissances petgraph
-- **Corpus juridique** — 13 fiches thématiques (CAF, travail, impôts, santé, retraite…)
-- **Recherche web** — Sources officielles uniquement (service-public.fr, legifrance.gouv.fr…)
-- **Feedback loop** — Les résultats web de qualité enrichissent automatiquement le RAG
-- **Analyse PDF** — Extraction de texte depuis des documents administratifs
-- **Historique** — Conversations sauvegardées localement (SQLite)
-- **Streaming** — Réponses en temps réel token par token
-
-## Stack technique
-
-| Composant | Technologie |
-|---|---|
-| Backend | **Rust** (Tauri 2) |
-| LLM | **Phi-3-Mini 3.8B** (llama-cpp-2, GGUF Q4_K_M) |
-| GPU | **CUDA** (optionnel — NVIDIA, chargement ~1.2s) |
-| RAG | **GraphRAG hybride** (LanceDB vectoriel + petgraph) |
-| Embeddings | fastembed (multilingual-e5-small, 384 dims) |
-| Frontend | HTML/CSS/JS vanilla + marked.js |
-| Historique | SQLite (sqlx) |
-| Recherche web | Sources officielles uniquement (filet de secours) |
-
-## Architecture
-
-```
-┌─────────────────────────────────────────┐
-│       Frontend Tauri (WebView)          │
-└────────────────┬────────────────────────┘
-                 │ IPC streaming
-┌────────────────▼────────────────────────┐
-│         Backend Rust                     │
-│  Commands · LLM · GraphRAG · Web        │
-└───┬──────────────┬──────────────┬───────┘
-    │              │              │
-┌───▼──────┐ ┌────▼────────┐ ┌──▼──────────┐
-│ Phi-3    │ │ LanceDB +   │ │ Recherche   │
-│ llama.cpp│ │ petgraph    │ │ web officiel│
-│ GPU/CPU  │ │ Corpus légal│ │ → feedback  │
-└──────────┘ └─────────────┘ └─────────────┘
-```
-
-## Prérequis
-
-- **Rust** ≥ 1.75 (`rustup`)
-- **Tauri CLI** v2 (`cargo install tauri-cli --version "^2.0"`)
-- **Protobuf compiler** (`protoc`)
-- **CMake** ≥ 3.21
-- Windows : Visual Studio Build Tools (MSVC) + WebView2
-- *Optionnel* : **CUDA Toolkit** ≥ 12.0 + GPU NVIDIA (pour accélération GPU)
-
-## Démarrage rapide
-
-```bash
-cd marianne
-
-# Build CPU (par défaut — inclut fastembed + vectordb)
-cargo tauri dev
-
-# Build avec accélération GPU NVIDIA
-cargo tauri dev --features cuda
-```
-
-Au premier lancement, Marianne télécharge le modèle Phi-3-Mini (~2.2 Go) automatiquement avec reprise en cas d'interruption.
 
 ## Structure du projet
 
-```
+```text
 marianne/
-├── src-tauri/src/
-│   ├── main.rs            # Point d'entrée Tauri
-│   ├── state.rs           # État global partagé
-│   ├── commands/          # Commandes IPC (chat, setup, corpus, documents, profile)
-│   ├── llm/               # Moteur LLM llama-cpp-2 (engine, sampler, streamer)
-│   ├── rag/               # RAG hybride (embedder, retriever, store, graph, feedback)
-│   ├── web/               # Recherche web (searcher, cache, sources officielles)
-│   ├── documents/         # Extraction PDF
-│   ├── prompts/           # Prompt système Marianne
-│   ├── network/           # Détection connectivité
-│   ├── profile/           # Profil utilisateur
-│   └── history/           # Historique SQLite
-├── frontend/              # Interface WebView
-│   ├── index.html
-│   ├── scripts/app.js
-│   └── styles/main.css
-└── corpus/                # 13 fiches thématiques (CAF, travail, impôts…)
+├── marianne-core/       # 🧠 Moteur Rust (LLM, RAG, Agents, Prompts)
+├── marianne-server/     # ⚙️ Serveur HTTP (Axum, SSE, API REST)
+├── marianne-client/     # 🖥️ App Desktop (Electron, Svelte, Vite)
+├── corpus/              # 📚 Base de connaissances juridique par défaut
+├── ARCHITECTURE.md      # Détails architecturaux
+└── MIGRATION.md         # Guide de migration depuis l'ancienne version Tauri
 ```
-
-## Features Cargo
-
-| Feature | Description |
-|---|---|
-| `default` | `custom-protocol` + `fastembed` + `vectordb` |
-| `cuda` | Accélération GPU NVIDIA (llama.cpp CUDA + fastembed + vectordb) |
-| `vectordb` | Base vectorielle LanceDB (RAG persistant) |
-| `fastembed` | Embeddings locaux multilingual-e5-small |
-
-## Phases de développement
-
-- [x] **Phase 1** — Squelette Tauri + architecture modules
-- [x] **Phase 2** — Moteur LLM (llama-cpp-2, GPU CUDA)
-- [x] **Phase 3** — Pipeline GraphRAG complet (LanceDB + petgraph)
-- [x] **Phase 4** — Interface utilisateur (streaming, markdown)
-- [x] **Phase 5** — Fonctionnalités métier (corpus juridique, profils)
-- [x] **Phase 6** — Optimisations performances (GPU, sampling)
-- [ ] **Phase 7** — Distribution & packaging (en cours)
-- [x] **Phase 8** — Recherche web souveraine + feedback loop RAG
-
-## Documentation
-
 
 ## Contribuer
 
-```bash
-# Vérifier la compilation
-cd marianne
-cargo check --features cuda
+Pour contribuer au code source, assurez-vous que les tests et la compilation passent correctement sur le core et le server :
 
-# Lancer les tests
-cargo test
+```bash
+cd marianne
+cargo check -p marianne-server
+cargo check -p marianne-server --features cuda # Si vous avez CUDA
+cargo test --all
 ```
 
 ## Licence
