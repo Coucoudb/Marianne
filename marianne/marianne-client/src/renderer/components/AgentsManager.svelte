@@ -152,7 +152,14 @@
           {#each agents as agent}
             <div class="agent-card">
               <div class="agent-info">
-                <h4>{agent.name}</h4>
+                <div class="agent-header-row">
+                  <h4>{agent.name}</h4>
+                  {#if agent.level}
+                    <span class="level-badge level-{agent.level}">
+                      {agent.level === 'global' ? '🌐 Global' : agent.level === 'project' ? '📁 Projet' : '🖥️ Serveur'}
+                    </span>
+                  {/if}
+                </div>
                 <p>{agent.description}</p>
                 <div class="tags">
                   {#each agent.tools as tool}
@@ -358,5 +365,44 @@
     font-size: 0.85rem;
     color: var(--text-muted);
     font-style: italic;
+  }
+
+  .agent-header-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .agent-header-row h4 {
+    margin: 0;
+    font-size: 1.1rem;
+  }
+
+  .level-badge {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    letter-spacing: 0.02em;
+  }
+
+  .level-global {
+    background: rgba(100, 149, 237, 0.15);
+    color: #6495ed;
+    border: 1px solid rgba(100, 149, 237, 0.3);
+  }
+
+  .level-server {
+    background: rgba(160, 160, 180, 0.12);
+    color: var(--text-muted);
+    border: 1px solid rgba(160, 160, 180, 0.25);
+  }
+
+  .level-project {
+    background: rgba(80, 200, 120, 0.15);
+    color: #50c878;
+    border: 1px solid rgba(80, 200, 120, 0.3);
   }
 </style>

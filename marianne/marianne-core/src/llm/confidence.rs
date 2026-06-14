@@ -218,7 +218,153 @@ pub fn detect_satisfaction(message: &str) -> bool {
     positive.iter().any(|p| q.contains(p))
 }
 
-/// Déterminer la catégorie générale de la question (simplifié)
-pub fn detect_category(_query: &str) -> &'static str {
+/// Déterminer la catégorie générale de la question pour le filtrage RAG.
+/// Scan rapide par keywords — exécuté à chaque requête utilisateur.
+pub fn detect_category(query: &str) -> &'static str {
+    let q = query.to_lowercase();
+
+    // ── Droits & Administration ──────────────────────────────────────
+    if q.contains("caf") || q.contains("apl") || q.contains("rsa") || q.contains("prime d'activité") || q.contains("allocation") {
+        return "caf";
+    }
+    if q.contains("urssaf") || q.contains("auto-entrepreneur") || q.contains("micro-entreprise") || q.contains("cotisations sociales") {
+        return "urssaf";
+    }
+    if q.contains("ameli") || q.contains("cpam") || q.contains("sécurité sociale") || q.contains("arrêt maladie") || q.contains("mutuelle") {
+        return "sante";
+    }
+    if q.contains("licenciement") || q.contains("prud'hommes") || q.contains("prudhommes") || q.contains("contrat de travail") || q.contains("heures supplémentaires") || q.contains("cdd") || q.contains("cdi") {
+        return "droit_travail";
+    }
+    if q.contains("bail") || q.contains("locataire") || q.contains("propriétaire") || q.contains("loyer") || q.contains("expulsion") || q.contains("préavis") || q.contains("dépôt de garantie") {
+        return "logement";
+    }
+    if q.contains("retraite") || q.contains("pension") || q.contains("trimestre") || q.contains("cnav") || q.contains("agirc") {
+        return "retraite";
+    }
+    if q.contains("recours") || q.contains("contestation") || q.contains("médiateur") || q.contains("mediateur") {
+        return "recours";
+    }
+    if q.contains("impôt") || q.contains("impot") || q.contains("déclaration de revenu") || q.contains("taxe foncière") || q.contains("taxe d'habitation") || q.contains("tva") {
+        return "impots";
+    }
+
+    // ── Droit étendu ─────────────────────────────────────────────────
+    if q.contains("tribunal") || q.contains("assignation") || q.contains("audience") || q.contains("jugement") || q.contains("appel") || q.contains("cassation") {
+        return "procedure_judiciaire";
+    }
+    if q.contains("code civil") || q.contains("responsabilité civile") || q.contains("dommages et intérêts") || q.contains("prescription") {
+        return "code_civil";
+    }
+    if q.contains("rétractation") || q.contains("retractation") || q.contains("garantie légale") || q.contains("pratiques commerciales") {
+        return "consommation";
+    }
+    if q.contains("infraction") || q.contains("délit") || q.contains("contravention") || q.contains("garde à vue") || q.contains("procureur") || q.contains("plainte") {
+        return "penal";
+    }
+    if q.contains("divorce") || q.contains("pension alimentaire") || q.contains("garde d'enfant") || q.contains("autorité parentale") || q.contains("pacs") || q.contains("adoption") || q.contains("succession") {
+        return "famille";
+    }
+    if q.contains("jurisprudence") || q.contains("cour de cassation") || q.contains("conseil d'état") || q.contains("conseil d'etat") {
+        return "jurisprudence";
+    }
+    if q.contains("copropriété") || q.contains("permis de construire") || q.contains("urbanisme") || q.contains("cadastre") || q.contains("notaire") {
+        return "droit_immobilier";
+    }
+    if q.contains("rgpd") || q.contains("cnil") || q.contains("données personnelles") || q.contains("droit à l'oubli") || q.contains("cyberharcèlement") {
+        return "droit_numerique";
+    }
+
+    // ── Finance & Économie ───────────────────────────────────────────
+    if q.contains("épargne") || q.contains("crédit bancaire") || q.contains("prêt immobilier") || q.contains("surendettement") || q.contains("banque de france") {
+        return "finance_perso";
+    }
+    if q.contains("bourse") || q.contains("action") && q.contains("investir") || q.contains("etf") || q.contains("pea") || q.contains("assurance-vie") || q.contains("dividende") {
+        return "investissement";
+    }
+    if q.contains("bitcoin") || q.contains("ethereum") || q.contains("blockchain") || q.contains("nft") || q.contains("defi") || (q.contains("crypto") && !q.contains("cryptograph")) {
+        return "crypto";
+    }
+    if q.contains("comptabilité") || q.contains("bilan comptable") || q.contains("liasse fiscale") || q.contains("amortissement") {
+        return "comptabilite";
+    }
+
+    // ── Vie quotidienne ──────────────────────────────────────────────
+    if q.contains("permis de conduire") || q.contains("carte grise") || q.contains("sncf") || q.contains("covoiturage") || q.contains("assurance auto") {
+        return "transport";
+    }
+    if q.contains("bourse étudiante") || q.contains("inscription") && q.contains("université") || q.contains("cpf") || q.contains("apprentissage") || q.contains("formation professionnelle") {
+        return "education";
+    }
+    if q.contains("chômage") || q.contains("chomage") || q.contains("france travail") || q.contains("pôle emploi") || q.contains("pole emploi") || q.contains("are") && q.contains("emploi") || q.contains("lettre de motivation") {
+        return "emploi";
+    }
+    if q.contains("carte d'identité") || q.contains("passeport") || q.contains("acte de naissance") || q.contains("état civil") || q.contains("préfecture") {
+        return "demarches";
+    }
+    if q.contains("recyclage") || q.contains("énergie renouvelable") || q.contains("maprimerénov") || q.contains("isolation thermique") || q.contains("diagnostic énergétique") {
+        return "environnement";
+    }
+
+    // ── Programmation & Tech ─────────────────────────────────────────
+    if q.contains("algorithme") || q.contains("complexité") || q.contains("structure de données") || q.contains("programmation dynamique") || q.contains("récursion") || q.contains("tri rapide") {
+        return "algorithmique";
+    }
+    if q.contains("rust") || q.contains("ownership") || q.contains("borrowing") || q.contains("lifetime") || q.contains("cargo") && q.contains("crate") {
+        return "rust";
+    }
+    if q.contains("python") || q.contains("pandas") || q.contains("numpy") || q.contains("django") || q.contains("flask") || q.contains("pip install") {
+        return "python";
+    }
+    if q.contains("html") || q.contains("css") || q.contains("javascript") || q.contains("react") || q.contains("svelte") || q.contains("angular") || q.contains("node.js") || q.contains("frontend") || q.contains("backend") {
+        return "web_dev";
+    }
+    if q.contains("docker") || q.contains("kubernetes") || q.contains("ci/cd") || q.contains("github actions") || q.contains("terraform") || q.contains("déploiement") {
+        return "devops";
+    }
+    if q.contains("sql") || q.contains("postgresql") || q.contains("mongodb") || q.contains("redis") || q.contains("base de données") || q.contains("orm") {
+        return "base_donnees";
+    }
+    if q.contains("machine learning") || q.contains("deep learning") || q.contains("réseau de neurones") || q.contains("llm") || q.contains("fine-tuning") || q.contains("intelligence artificielle") {
+        return "ia_ml";
+    }
+    if q.contains("programmation") || q.contains("code source") || q.contains("compilateur") || q.contains("débugger") || q.contains("développement logiciel") || q.contains("langage de programmation") {
+        return "programmation";
+    }
+
+    // ── Cybersécurité & Hacking ──────────────────────────────────────
+    if q.contains("pentest") || q.contains("test d'intrusion") || q.contains("exploit") || q.contains("ctf") || q.contains("reverse engineering") || q.contains("bug bounty") || q.contains("hacking") {
+        return "hacking";
+    }
+    if q.contains("cybersécurité") || q.contains("pare-feu") || q.contains("firewall") || q.contains("antivirus") || q.contains("zero trust") || q.contains("soc") && q.contains("sécurité") {
+        return "cybersecurite";
+    }
+    if q.contains("tcp/ip") || q.contains("dns") || q.contains("vpn") || q.contains("proxy") || q.contains("routeur") || q.contains("wireshark") || q.contains("nat") {
+        return "reseau";
+    }
+    if q.contains("cryptographie") || q.contains("chiffrement") || q.contains("aes") || q.contains("rsa") && q.contains("chiffr") || q.contains("ssl") || q.contains("tls") || q.contains("pki") {
+        return "crypto_secu";
+    }
+
+    // ── Sciences & Culture ───────────────────────────────────────────
+    if q.contains("histoire") || q.contains("guerre mondiale") || q.contains("révolution") || q.contains("moyen âge") || q.contains("antiquité") || q.contains("napoléon") {
+        return "histoire";
+    }
+    if q.contains("géographie") || q.contains("continent") || q.contains("capitale") || q.contains("population") && q.contains("pays") {
+        return "geographie";
+    }
+    if q.contains("physique") || q.contains("chimie") || q.contains("biologie") || q.contains("mathématiques") || q.contains("formule") || q.contains("expérience scientifique") {
+        return "sciences";
+    }
+    if q.contains("philosophie") || q.contains("éthique") || q.contains("métaphysique") || q.contains("existentialisme") || q.contains("nietzsche") || q.contains("sartre") {
+        return "philosophie";
+    }
+    if q.contains("littérature") || q.contains("roman") || q.contains("poésie") || q.contains("auteur") && q.contains("livre") {
+        return "litterature";
+    }
+    if q.contains("cinéma") || q.contains("musique") || q.contains("musée") || q.contains("patrimoine") || q.contains("architecture") {
+        return "culture_generale";
+    }
+
     "general"
 }

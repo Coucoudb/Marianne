@@ -298,20 +298,57 @@ fn authority_score(source: &str) -> f32 {
     }
 }
 
-/// Vérifier si une source correspond à la catégorie détectée
+/// Vérifier si une source correspond à la catégorie détectée.
+/// Support étendu pour toutes les catégories (droit, finance, tech, sciences...).
 fn source_matches_category(source: &str, category: &str) -> bool {
     let s = source.to_lowercase();
+    let cat = category.to_lowercase();
+
+    // Correspondance directe : le tag est dans le nom de source
+    if s.contains(&cat) {
+        return true;
+    }
+
+    // Aliases spécifiques pour les catégories historiques
     match category {
         "caf" => s.contains("caf") || s.contains("apl") || s.contains("rsa") || s.contains("prime"),
-        "sante" => s.contains("ameli") || s.contains("securite_sociale") || s.contains("sante"),
+        "sante" => s.contains("ameli") || s.contains("securite_sociale") || s.contains("sante") || s.contains("cpam"),
         "urssaf" => s.contains("urssaf") || s.contains("autoentrepreneur"),
-        "chomage" => s.contains("chomage") || s.contains("are") || s.contains("france-travail"),
-        "impots" => s.contains("impots") || s.contains("fiscal"),
-        "identite" => s.contains("identite") || s.contains("document"),
-        "droit_travail" => s.contains("travail") || s.contains("contrat") || s.contains("licenciement"),
-        "logement" => s.contains("logement") || s.contains("locataire"),
-        "retraite" => s.contains("retraite") || s.contains("droits"),
-        "recours" => s.contains("recours") || s.contains("contestation"),
+        "chomage" | "emploi" => s.contains("chomage") || s.contains("are") || s.contains("france-travail") || s.contains("emploi"),
+        "impots" => s.contains("impots") || s.contains("fiscal") || s.contains("tresor"),
+        "identite" | "demarches" => s.contains("identite") || s.contains("document") || s.contains("prefect") || s.contains("mairie"),
+        "droit_travail" => s.contains("travail") || s.contains("contrat") || s.contains("licenciement") || s.contains("prudhomm"),
+        "logement" | "droit_immobilier" => s.contains("logement") || s.contains("locataire") || s.contains("immobil") || s.contains("copropri"),
+        "retraite" => s.contains("retraite") || s.contains("pension") || s.contains("cnav"),
+        "recours" | "procedure_judiciaire" => s.contains("recours") || s.contains("contestation") || s.contains("tribunal") || s.contains("justice"),
+        "famille" => s.contains("famille") || s.contains("divorce") || s.contains("garde") || s.contains("pension_alim"),
+        "penal" => s.contains("penal") || s.contains("infraction") || s.contains("delit"),
+        "code_civil" => s.contains("civil") || s.contains("obligation") || s.contains("responsabilit"),
+        "consommation" | "consommateur" => s.contains("consomm") || s.contains("garantie") || s.contains("retractat"),
+        "jurisprudence" => s.contains("jurisprud") || s.contains("cassation") || s.contains("arret"),
+        "droit_numerique" => s.contains("rgpd") || s.contains("cnil") || s.contains("donnees_perso"),
+        "finance_perso" | "investissement" => s.contains("financ") || s.contains("bourse") || s.contains("epargn") || s.contains("credit"),
+        "crypto" => s.contains("crypto") || s.contains("bitcoin") || s.contains("blockchain"),
+        "comptabilite" => s.contains("compta") || s.contains("bilan") || s.contains("fiscal"),
+        "programmation" | "algorithmique" => s.contains("program") || s.contains("algo") || s.contains("code"),
+        "web_dev" => s.contains("web") || s.contains("frontend") || s.contains("backend") || s.contains("javascript"),
+        "rust" => s.contains("rust") || s.contains("cargo"),
+        "python" => s.contains("python") || s.contains("django") || s.contains("flask"),
+        "devops" => s.contains("devops") || s.contains("docker") || s.contains("kubernetes") || s.contains("cicd"),
+        "base_donnees" => s.contains("sql") || s.contains("database") || s.contains("mongo") || s.contains("redis"),
+        "ia_ml" => s.contains("machine_learn") || s.contains("deep_learn") || s.contains("llm") || s.contains("neural"),
+        "cybersecurite" | "hacking" => s.contains("secur") || s.contains("hack") || s.contains("pentest") || s.contains("vulner"),
+        "reseau" => s.contains("reseau") || s.contains("network") || s.contains("tcp") || s.contains("dns"),
+        "crypto_secu" => s.contains("chiffr") || s.contains("crypto") || s.contains("ssl") || s.contains("tls"),
+        "histoire" => s.contains("histoir") || s.contains("guerre") || s.contains("revolution"),
+        "geographie" => s.contains("geograph") || s.contains("pays") || s.contains("continent"),
+        "sciences" => s.contains("science") || s.contains("physiqu") || s.contains("chimie") || s.contains("biolog"),
+        "philosophie" => s.contains("philosoph") || s.contains("ethiqu"),
+        "litterature" => s.contains("litterat") || s.contains("roman") || s.contains("poesi"),
+        "culture_generale" => s.contains("culture") || s.contains("art") || s.contains("musiqu") || s.contains("cinema"),
+        "transport" => s.contains("transport") || s.contains("permis") || s.contains("sncf"),
+        "education" => s.contains("educat") || s.contains("ecole") || s.contains("universi") || s.contains("formation"),
+        "environnement" => s.contains("environn") || s.contains("ecolog") || s.contains("energi") || s.contains("renouvelab"),
         _ => false,
     }
 }

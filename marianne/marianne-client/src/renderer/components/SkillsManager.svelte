@@ -116,8 +116,18 @@
           {#each skills as skill}
             <div class="skill-card">
               <div class="skill-info">
-                <h4>{skill.name}</h4>
+                <div class="skill-header-row">
+                  <h4>{skill.name}</h4>
+                  {#if skill.level}
+                    <span class="level-badge level-{skill.level}">
+                      {skill.level === 'global' ? '🌐 Global' : skill.level === 'project' ? '📁 Projet' : '🖥️ Serveur'}
+                    </span>
+                  {/if}
+                </div>
                 <p>{skill.description}</p>
+                {#if skill.scope}
+                  <div class="scope-tag">🎯 {skill.scope}</div>
+                {/if}
                 <div class="preview">{skill.content.slice(0, 80)}...</div>
               </div>
               <div class="skill-actions">
@@ -278,5 +288,50 @@
   .btn-icon.danger:hover {
     background: rgba(255, 50, 50, 0.1);
     color: #ff4444;
+  }
+
+  .skill-header-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .skill-header-row h4 {
+    margin: 0;
+    font-size: 1.1rem;
+  }
+
+  .level-badge {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    letter-spacing: 0.02em;
+  }
+
+  .level-global {
+    background: rgba(100, 149, 237, 0.15);
+    color: #6495ed;
+    border: 1px solid rgba(100, 149, 237, 0.3);
+  }
+
+  .level-server {
+    background: rgba(160, 160, 180, 0.12);
+    color: var(--text-muted);
+    border: 1px solid rgba(160, 160, 180, 0.25);
+  }
+
+  .level-project {
+    background: rgba(80, 200, 120, 0.15);
+    color: #50c878;
+    border: 1px solid rgba(80, 200, 120, 0.3);
+  }
+
+  .scope-tag {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    margin-bottom: 0.4rem;
   }
 </style>

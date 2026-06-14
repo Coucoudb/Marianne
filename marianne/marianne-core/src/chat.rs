@@ -94,6 +94,13 @@ pub async fn process_chat(
     let (agent, agent_skills) = if let Some(id) = &request.agent_id {
         let all_agents = state.workspace.list_agents().await.unwrap_or_default();
         if let Some(a) = all_agents.into_iter().find(|a| &a.id == id) {
+            // Câbler le project_dir du workspace pour activer le niveau Projet
+            if let Some(ref wd) = a.working_directory {
+                let wd_path = std::path::PathBuf::from(wd);
+                if wd_path.exists() {
+                    state.workspace.set_project_dir(Some(wd_path));
+                }
+            }
             let all_skills = state.workspace.list_skills().await.unwrap_or_default();
             let skills: Vec<crate::workspace::skill::Skill> = all_skills.into_iter().filter(|s| a.skills.contains(&s.id)).collect();
             (Some(a), skills)

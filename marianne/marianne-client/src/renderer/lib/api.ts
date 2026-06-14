@@ -19,6 +19,7 @@ export interface Agent {
   skills: string[];
   tools: string[];
   working_directory?: string;
+  level?: SaveLevel;
 }
 
 export interface Skill {
@@ -27,6 +28,7 @@ export interface Skill {
   description: string;
   content: string;
   scope?: string;
+  level?: SaveLevel;
 }
 
 export type SaveLevel = 'global' | 'server' | 'project';
@@ -389,6 +391,21 @@ export class ApiClient {
 
   async deleteSkill(id: string): Promise<void> {
     await this.fetch(`/api/v1/workspace/skills/${id}`, { method: 'DELETE' });
+  }
+
+  // --- Project Directory ---
+
+  async setProjectDir(path: string | null): Promise<void> {
+    await this.fetch('/api/v1/workspace/project-dir', {
+      method: 'POST',
+      body: JSON.stringify({ path })
+    });
+  }
+
+  async getProjectDir(): Promise<string | null> {
+    const res = await this.fetch('/api/v1/workspace/project-dir');
+    const json = await res.json();
+    return json.project_dir || null;
   }
 }
 

@@ -117,6 +117,8 @@ jobs:
           CUDA_PATH="${{ steps.cuda-toolkit-linux.outputs.CUDA_PATH }}"
           echo "CUDA_PATH=${CUDA_PATH}" >> $GITHUB_ENV
           echo "CUDACXX=${CUDA_PATH}/bin/nvcc" >> $GITHUB_ENV
+          echo "CUDAHOSTCXX=/usr/bin/g++" >> $GITHUB_ENV
+          echo "CMAKE_CUDA_HOST_COMPILER=/usr/bin/g++" >> $GITHUB_ENV
           echo "${CUDA_PATH}/bin" >> $GITHUB_PATH
 
       - name: Install CUDA Toolkit (Windows)

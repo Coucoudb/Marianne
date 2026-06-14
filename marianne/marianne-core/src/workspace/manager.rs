@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
-#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize, Default, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum SaveLevel {
     Global,
@@ -36,12 +36,57 @@ impl WorkspaceManager {
         *self.project_dir.write() = dir;
     }
 
+    pub fn get_project_dir(&self) -> Option<PathBuf> {
+        self.project_dir.read().clone()
+    }
+
     pub async fn init(&self) -> std::io::Result<()> {
         fs::create_dir_all(self.global_dir.join("agents")).await.ok();
         fs::create_dir_all(self.global_dir.join("skills")).await.ok();
         fs::create_dir_all(self.server_dir.join("agents")).await?;
         fs::create_dir_all(self.server_dir.join("skills")).await?;
         Ok(())
+    }
+
+    /// Vérifier si un fichier agent/skill existe dans un répertoire donné
+    fn file_exists_in_dir(dir: &Path, id: &str, kind: &str) -> bool {
+        dir.join(format!("{}.{}.md", id, kind)).exists()
+            || dir.join(format!("{}.json", id)).exists()
+    }
+
+    /// Déterminer le niveau de sauvegarde d'un agent existant.
+    /// Vérifie en ordre inverse de priorité (project > server > global).
+    pub fn get_agent_level(&self, id: &str) -> SaveLevel {
+        let proj = self.project_dir.read().clone();
+        if let Some(ref p) = proj {
+            if Self::file_exists_in_dir(&p.join(".marianne").join("agents"), id, "agent") {
+                return SaveLevel::Project;
+            }
+        }
+        if Self::file_exists_in_dir(&self.server_dir.join("agents"), id, "agent") {
+            return SaveLevel::Server;
+        }
+        if Self::file_exists_in_dir(&self.global_dir.join("agents"), id, "agent") {
+            return SaveLevel::Global;
+        }
+        SaveLevel::Server // Défaut
+    }
+
+    /// Déterminer le niveau de sauvegarde d'un skill existant.
+    pub fn get_skill_level(&self, id: &str) -> SaveLevel {
+        let proj = self.project_dir.read().clone();
+        if let Some(ref p) = proj {
+            if Self::file_exists_in_dir(&p.join(".marianne").join("skills"), id, "skill") {
+                return SaveLevel::Project;
+            }
+        }
+        if Self::file_exists_in_dir(&self.server_dir.join("skills"), id, "skill") {
+            return SaveLevel::Server;
+        }
+        if Self::file_exists_in_dir(&self.global_dir.join("skills"), id, "skill") {
+            return SaveLevel::Global;
+        }
+        SaveLevel::Server
     }
 
     async fn read_agents_from_dir(dir: &Path) -> anyhow::Result<Vec<Agent>> {
