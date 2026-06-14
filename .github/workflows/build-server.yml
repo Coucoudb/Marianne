@@ -135,6 +135,7 @@ jobs:
         shell: pwsh
         run: |
           echo "NVCC_CCBIN=" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "NVCC_APPEND_FLAGS=-allow-unsupported-compiler -Xcompiler /Zc:preprocessor" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # ── Vulkan (Windows) ─────────────────────────────────────────────────
       - name: Install Vulkan SDK (Windows)
