@@ -162,10 +162,10 @@ impl LlmEngine {
             .collect();
         
         // Si aucun GPU dédié, fallback vers tous les GPU (y compris intégrés)
-        let gpu_devices = if !dedicated_gpus.is_empty() {
+        let gpu_devices: Vec<_> = if !dedicated_gpus.is_empty() {
             dedicated_gpus
         } else {
-            all_gpu_devices
+            all_gpu_devices.clone()
         };
 
         let has_gpu = !gpu_devices.is_empty();
@@ -174,7 +174,7 @@ impl LlmEngine {
         if has_gpu {
             tracing::info!("🔍 Devices GPU détectés par Rust : {}", all_gpu_devices.len());
             for (idx, dev) in all_gpu_devices.iter().enumerate() {
-                let marker = if gpu_devices.contains(dev) { "✓" } else { "⊘" };
+                let marker = if gpu_devices.iter().any(|d| d.description == dev.description) { "✓" } else { "⊘" };
                 tracing::info!(
                     "   {} [{}] {} ({:?}, {} Mo VRAM)",
                     marker,

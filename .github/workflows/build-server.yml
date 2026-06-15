@@ -205,8 +205,29 @@ jobs:
           if (-not (Test-Path $src)) {
             $src = "marianne\target\${{ matrix.target }}\release\marianne-server.exe"
           }
+
+          # Dossier de staging pour grouper binaire + DLLs éventuelles
+          $stagingDir = "staging-${{ matrix.variant }}"
+          New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
+          Copy-Item $src -Destination $stagingDir
+
+          # Embarquer les DLLs CUDA pour la variante cuda (runtime dynamique absent sur les machines cibles)
+          if ("${{ matrix.variant }}" -eq "cuda") {
+            $cudaBin = "$env:CUDA_PATH\bin"
+            $dlls = @("cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll")
+            foreach ($dll in $dlls) {
+              $dllPath = Join-Path $cudaBin $dll
+              if (Test-Path $dllPath) {
+                Copy-Item $dllPath -Destination $stagingDir
+                Write-Host "✅ DLL embarquée : $dll"
+              } else {
+                Write-Warning "⚠️ DLL introuvable (ignorée) : $dllPath"
+              }
+            }
+          }
+
           $dest = "marianne-server-${{ matrix.platform-name }}-${{ matrix.variant }}.zip"
-          Compress-Archive -Path $src -DestinationPath $dest
+          Compress-Archive -Path "$stagingDir\*" -DestinationPath $dest
 
       - name: Package (Linux / macOS)
         if: "!startsWith(matrix.platform, 'windows')"
