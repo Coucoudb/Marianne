@@ -2,7 +2,7 @@
 name: "Code Workflow"
 description: "Orchestrator agent for the Marianne project. Use when a task spans multiple domains (frontend, backend, AI/ML, tests, quality) or when you need to coordinate work across Svelte UI, Rust server, RAG pipeline, Tauri integration, and code quality. Triggered by: new feature, refactor, full stack, multi-domain, orchestrate, coordinate, implement feature, code workflow."
 tools: [read, search, edit, todo, agent]
-model: "Claude Sonnet 4.5 (copilot)"
+model: "Claude Sonnet 4.6 (copilot)"
 agents:
   - Front Specialist
   - Back Specialist

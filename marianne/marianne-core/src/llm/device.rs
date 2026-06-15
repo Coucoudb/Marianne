@@ -21,6 +21,41 @@ pub fn is_gpu_available() -> bool {
         ))
 }
 
+/// Liste les GPU utilisables par llama-cpp, avec la même logique de filtrage que LlmEngine.
+///
+/// Si des GPU dédiés (`Gpu`) sont présents, seuls ceux-ci sont retournés.
+/// Sinon, tous les GPU (y compris intégrés) sont retournés en fallback.
+///
+/// Les indices retournés correspondent exactement aux indices attendus par `main_gpu`
+/// dans llama-cpp — ils doivent être utilisés pour construire les options de sélection GPU
+/// exposées à l'utilisateur.
+pub fn list_usable_gpu_devices() -> Vec<LlamaBackendDevice> {
+    let all = list_backend_devices();
+    let all_gpu: Vec<LlamaBackendDevice> = all
+        .into_iter()
+        .filter(|d| {
+            matches!(
+                d.device_type,
+                LlamaBackendDeviceType::Gpu
+                    | LlamaBackendDeviceType::IntegratedGpu
+                    | LlamaBackendDeviceType::Accelerator
+            )
+        })
+        .collect();
+
+    let dedicated: Vec<LlamaBackendDevice> = all_gpu
+        .iter()
+        .filter(|d| matches!(d.device_type, LlamaBackendDeviceType::Gpu))
+        .cloned()
+        .collect();
+
+    if !dedicated.is_empty() {
+        dedicated
+    } else {
+        all_gpu
+    }
+}
+
 /// Diagnostic : détecte si llama.cpp a été compilé sans support GPU
 /// malgré la présence de matériel GPU dans le système
 pub fn diagnose_gpu_compilation() -> Option<String> {

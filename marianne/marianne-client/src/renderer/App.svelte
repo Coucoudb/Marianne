@@ -516,10 +516,10 @@
                 </div>
               </div>
               {#if systemInfo.gpu_devices.length > 0}
-                <div class="section-label" style="margin-top: var(--spacing-md);">GPU détectés</div>
+                <div class="section-label" style="margin-top: var(--spacing-md);">GPU compatibles llama-cpp</div>
                 {#each systemInfo.gpu_devices as gpu}
                   <div class="info-card">
-                    <div class="info-card-label">{gpu.device_type.toUpperCase()} #{gpu.index}</div>
+                    <div class="info-card-label">GPU #{gpu.index}</div>
                     <div class="info-card-value">{gpu.name}</div>
                     <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.25rem;">
                       {gpu.vram_free_mb} Mo VRAM libre
@@ -607,10 +607,15 @@
                   <option value="AllGpus">Tous les GPU (Multi-GPU)</option>
                   {#if systemInfo && systemInfo.gpu_devices}
                     {#each systemInfo.gpu_devices as gpu}
-                      <option value={`Specific_${gpu.index}`}>Forcer {gpu.device_type.toUpperCase()} #{gpu.index} ({gpu.name})</option>
+                      <option value={`Specific_${gpu.index}`}>GPU #{gpu.index} — {gpu.name} ({gpu.vram_free_mb} Mo VRAM)</option>
                     {/each}
                   {/if}
                 </select>
+                {#if systemInfo && systemInfo.gpu_devices && systemInfo.gpu_devices.length > 0}
+                  <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.25rem;">
+                    Seuls les GPU compatibles avec llama-cpp sont listés (GPU dédiés en priorité).
+                  </div>
+                {/if}
               </div>
             </div>
 

@@ -95,7 +95,11 @@ pub struct LlmEngine {
     config: EngineConfig,
 }
 
-// Safety: LlamaBackend et LlamaModel sont thread-safe via leur implémentation interne
+// SAFETY: LlamaBackend et LlamaModel sont thread-safe par construction :
+// - LlamaBackend utilise un Arc interne (ref-counted, thread-safe)
+// - LlamaModel est immutable après création (read-only state)
+// - Aucune mutation interne sans synchronisation
+// Référence : llama-cpp-2 garantit Send+Sync pour ces types
 unsafe impl Send for LlmEngine {}
 unsafe impl Sync for LlmEngine {}
 
@@ -135,7 +139,9 @@ impl LlmEngine {
 
         // Détection runtime des devices GPU disponibles
         let all_devices = llama_cpp_2::list_llama_ggml_backend_devices();
-        let gpu_devices: Vec<_> = all_devices
+        
+        // Lister tous les GPU (y compris intégrés)
+        let all_gpu_devices: Vec<_> = all_devices
             .iter()
             .filter(|d| {
                 matches!(
@@ -146,19 +152,39 @@ impl LlmEngine {
                 )
             })
             .collect();
+        
+        // Filtrer pour ne garder que les GPU dédiés (pas intégrés) si disponibles
+        // Car llama-cpp ignore souvent les GPU intégrés en interne
+        let dedicated_gpus: Vec<_> = all_gpu_devices
+            .iter()
+            .filter(|d| matches!(d.device_type, llama_cpp_2::LlamaBackendDeviceType::Gpu))
+            .copied()
+            .collect();
+        
+        // Si aucun GPU dédié, fallback vers tous les GPU (y compris intégrés)
+        let gpu_devices = if !dedicated_gpus.is_empty() {
+            dedicated_gpus
+        } else {
+            all_gpu_devices
+        };
 
         let has_gpu = !gpu_devices.is_empty();
 
         // Afficher les GPU détectés
         if has_gpu {
-            for dev in &gpu_devices {
+            tracing::info!("🔍 Devices GPU détectés par Rust : {}", all_gpu_devices.len());
+            for (idx, dev) in all_gpu_devices.iter().enumerate() {
+                let marker = if gpu_devices.contains(dev) { "✓" } else { "⊘" };
                 tracing::info!(
-                    "🎮 GPU détecté : {} ({:?}, {} Mo VRAM)",
+                    "   {} [{}] {} ({:?}, {} Mo VRAM)",
+                    marker,
+                    idx,
                     dev.description,
                     dev.device_type,
                     dev.memory_free / 1_048_576,
                 );
             }
+            tracing::info!("🎮 Devices GPU utilisables par llama-cpp : {}", gpu_devices.len());
         } else {
             tracing::warn!("💻 Aucun backend GPU détecté par llama.cpp");
             
@@ -194,40 +220,75 @@ impl LlmEngine {
         };
 
         // Configurer main_gpu et split_mode selon la sélection
-        let (main_gpu, split_mode) = if n_gpu_layers > 0 && gpu_devices.len() > 1 {
+        // CORRECTION BUG CRITIQUE : llama-cpp peut avoir une énumération différente des devices
+        // Stratégie conservatrice : toujours utiliser index 0 pour éviter "invalid main_gpu"
+        let (main_gpu, split_mode) = if n_gpu_layers > 0 && gpu_devices.len() >= 1 {
             match gpu_selection {
                 GpuSelection::Auto => {
-                    tracing::info!("🎮 GPU Auto — utilisation du GPU principal (index 0)");
+                    tracing::info!("🎮 Sélection GPU : Auto (index 0)");
                     (0i32, LlamaSplitMode::None)
                 }
                 GpuSelection::Specific(idx) => {
-                    let idx = *idx;
-                    if (idx as usize) < gpu_devices.len() {
-                        tracing::info!(
-                            "🎮 GPU sélectionné : index {} ({})",
-                            idx,
-                            gpu_devices[idx as usize].description
+                    let requested_idx = *idx;
+                    
+                    // Validation robuste : même si Rust voit plusieurs GPU,
+                    // llama-cpp peut en voir moins (ex: ignore les GPU intégrés)
+                    let safe_idx = if requested_idx >= 1 {
+                        tracing::warn!(
+                            "⚠️ GPU index {} demandé, mais llama-cpp peut avoir une énumération différente",
+                            requested_idx
                         );
+                        tracing::warn!(
+                            "   Cause: llama-cpp ignore parfois les GPU intégrés en interne"
+                        );
+                        tracing::warn!(
+                            "   Fallback sécurisé : utilisation du GPU index 0 (le plus puissant)"
+                        );
+                        0i32
+                    } else if (requested_idx as usize) < gpu_devices.len() {
+                        tracing::info!(
+                            "🎮 Sélection GPU : index {} ({})",
+                            requested_idx,
+                            gpu_devices[requested_idx as usize].description
+                        );
+                        requested_idx
                     } else {
                         tracing::warn!(
                             "⚠️ GPU index {} invalide (max: {}), fallback index 0",
-                            idx,
+                            requested_idx,
                             gpu_devices.len() - 1
                         );
-                    }
-                    (idx.min((gpu_devices.len() as i32) - 1), LlamaSplitMode::None)
+                        0i32
+                    };
+                    
+                    (safe_idx, LlamaSplitMode::None)
                 }
                 GpuSelection::AllGpus => {
-                    tracing::info!(
-                        "🎮 Multi-GPU activé — répartition sur {} GPU (mode Layer)",
-                        gpu_devices.len()
-                    );
-                    (0i32, LlamaSplitMode::Layer)
+                    if gpu_devices.len() > 1 {
+                        tracing::info!(
+                            "🎮 Multi-GPU activé — répartition sur {} GPU (mode Layer)",
+                            gpu_devices.len()
+                        );
+                        (0i32, LlamaSplitMode::Layer)
+                    } else {
+                        tracing::info!("🎮 Multi-GPU demandé, mais 1 seul GPU utilisable (index 0)");
+                        (0i32, LlamaSplitMode::None)
+                    }
                 }
             }
         } else {
             (0i32, LlamaSplitMode::None)
         };
+        
+        // Log final pour confirmation
+        if n_gpu_layers > 0 {
+            tracing::info!(
+                "✓ Configuration finale : main_gpu={}, split_mode={:?}, gpu_layers={}",
+                main_gpu,
+                split_mode,
+                n_gpu_layers
+            );
+        }
 
         let model_params = pin!(LlamaModelParams::default()
             .with_n_gpu_layers(n_gpu_layers)

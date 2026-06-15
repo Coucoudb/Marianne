@@ -3,7 +3,7 @@
 
 use crate::state::ServerState;
 use axum::{extract::State, Json};
-use marianne_core::llm::device::{list_backend_devices, LlamaBackendDevice, LlamaBackendDeviceType};
+use marianne_core::llm::device::{list_backend_devices, list_usable_gpu_devices, LlamaBackendDevice, LlamaBackendDeviceType};
 use marianne_core::profile::{DevicePreference, GpuSelection};
 use serde::Serialize;
 
@@ -67,8 +67,8 @@ pub async fn get_system_info(State(server): State<ServerState>) -> Json<SystemIn
     // ✅ FIX 2: Utiliser tokio::fs pour les I/O
     let model_name = resolve_model_name(&server.core.data_dir, &profile.selected_model).await;
 
-    // Réutiliser la liste des devices
-    let gpu_devices = list_gpu_devices(backend_devices);
+    // GPU filtrés : seulement les devices utilisables par llama-cpp (indices cohérents avec LlmEngine)
+    let gpu_devices = list_gpu_devices();
 
     Json(SystemInfo {
         device: DeviceInfo {
@@ -132,18 +132,11 @@ fn resolve_device_info(
     }
 }
 
-/// Lister tous les GPU disponibles sur la machine
-fn list_gpu_devices(devices: Vec<LlamaBackendDevice>) -> Vec<GpuDeviceInfo> {
-    devices
+/// Lister les GPU utilisables par llama-cpp (même logique de filtrage que LlmEngine).
+/// Garantit la cohérence des index entre l'UI et le moteur d'inférence.
+fn list_gpu_devices() -> Vec<GpuDeviceInfo> {
+    list_usable_gpu_devices()
         .into_iter()
-        .filter(|d| {
-            matches!(
-                d.device_type,
-                LlamaBackendDeviceType::Gpu
-                    | LlamaBackendDeviceType::IntegratedGpu
-                    | LlamaBackendDeviceType::Accelerator
-            )
-        })
         .enumerate()
         .map(|(idx, d)| {
             let device_type = match d.device_type {

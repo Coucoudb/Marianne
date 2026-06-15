@@ -2,7 +2,7 @@
 name: "Code Reviewer"
 description: "Comprehensive code review agent for the Marianne project. Use when reviewing pull requests, auditing code quality, planning refactors, reducing complexity, checking security vulnerabilities, scanning for secrets, navigating code with LSP, or performing a full review-and-refactor cycle. Triggered by: review, code review, refactor, complexity, security, audit, PR review, security scan, secrets, navigate, find references, refactor plan."
 tools: [read, search, edit, todo]
-model: "Claude Sonnet 4.5 (copilot)"
+model: "Claude Sonnet 4.6 (copilot)"
 handoffs:
   - label: "Implement Fixes"
     agent: Code Workflow
