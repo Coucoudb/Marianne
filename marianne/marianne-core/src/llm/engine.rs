@@ -127,7 +127,7 @@ impl LlmEngine {
 
         // Rediriger les logs llama.cpp vers tracing
         llama_cpp_2::send_logs_to_tracing(
-            llama_cpp_2::LogOptions::default().with_logs_enabled(false),
+            llama_cpp_2::LogOptions::default().with_logs_enabled(true),
         );
 
         // Configurer les paramètres du modèle

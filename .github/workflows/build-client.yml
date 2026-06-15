@@ -122,7 +122,6 @@ jobs:
           path: |
             marianne/marianne-client/release/*.AppImage
             marianne/marianne-client/release/*.deb
-            marianne/marianne-client/release/*.rpm
           if-no-files-found: error
 
       - name: Upload (macOS)
@@ -132,6 +131,5 @@ jobs:
           name: marianne-client-${{ matrix.platform-name }}
           path: |
             marianne/marianne-client/release/*.dmg
-            marianne/marianne-client/release/*.zip
           if-no-files-found: error
 

@@ -46,72 +46,91 @@ Marianne AI a migré vers une architecture moderne **Client-Serveur** :
 
 Cette séparation permet d'héberger le serveur gourmand en ressources sur une machine puissante (NAS, PC Fixe avec GPU) tout en utilisant l'application depuis un ordinateur plus modeste.
 
-## Prérequis
+## Démarrage rapide
+
+Téléchargez la [dernière release](https://github.com/Coucoudb/Marianne/releases/latest) et suivez les étapes ci-dessous.
+
+### 1. Installer le serveur IA
+
+Le serveur fait tourner l'IA localement. Choisissez l'archive adaptée à votre matériel :
+
+| Votre GPU | Windows | Linux | macOS |
+|-----------|---------|-------|-------|
+| **NVIDIA RTX/GTX** | `marianne-server-windows-x64-cuda.zip` | `marianne-server-linux-x64-cuda.tar.gz` | — |
+| **AMD / Intel / Autre** | `marianne-server-windows-x64-vulkan.zip` | `marianne-server-linux-x64-vulkan.tar.gz` | — |
+| **Apple Silicon** | — | — | `marianne-server-macos-arm64-metal.tar.gz` |
+| **Pas de GPU** | `marianne-server-windows-x64-cpu.zip` | `marianne-server-linux-x64-cpu.tar.gz` | `marianne-server-macos-arm64-cpu.tar.gz` |
+
+Décompressez l'archive puis lancez le serveur :
+
+```bash
+# Windows
+marianne-server.exe
+
+# Linux / macOS
+./marianne-server
+```
+
+> 💡 Au premier lancement, le modèle IA (~2.2 Go) est téléchargé automatiquement.
+
+### 2. Installer le client
+
+Le client est l'application de bureau que vous utilisez au quotidien.
+
+| Système | Fichier | Description |
+|---------|---------|-------------|
+| **Windows** | `Marianne AI Setup X.X.X.exe` | Installateur (recommandé) |
+| **Windows** | `Marianne AI X.X.X.exe` | Portable (sans installation) |
+| **macOS** | `Marianne AI-X.X.X-arm64.dmg` | Installateur |
+| **Linux** | `Marianne AI-X.X.X.AppImage` | Portable (universel) |
+| **Linux** | `marianne-client_X.X.X_amd64.deb` | Paquet Debian/Ubuntu |
+
+Au premier lancement, configurez l'URL du serveur (par défaut `http://localhost:3000`).
+
+### 3. C'est prêt !
+
+Le serveur et le client peuvent tourner sur le même PC, ou séparément : le serveur sur une machine puissante (NAS, PC fixe avec GPU) et le client sur un ordinateur plus modeste.
+
+---
+
+## Développement
+
+### Prérequis
 
 - **Rust** ≥ 1.75 (`rustup`)
 - **Node.js** ≥ 18 + npm (pour le client Electron)
 - **CMake** ≥ 3.21
 - Windows : Visual Studio Build Tools (MSVC)
-- *Optionnel* : **CUDA Toolkit** ≥ 12.0 + GPU NVIDIA (pour accélération CUDA)
-- *Optionnel* : **Vulkan SDK** (pour accélération GPU universelle)
+- *Optionnel* : **CUDA Toolkit** ≥ 12.0 (accélération NVIDIA)
+- *Optionnel* : **Vulkan SDK** (accélération GPU universelle)
 
-## Démarrage rapide
-
-L'application nécessite de lancer à la fois le serveur et le client.
-
-### 1. Démarrer le Serveur (Backend)
-
-Ouvrez un terminal et placez-vous à la racine du projet :
+### Lancer depuis les sources
 
 ```bash
+# Terminal 1 — Serveur
 cd marianne/marianne-server
+cargo run --release                  # Mode CPU
+cargo run --release --features cuda  # Avec GPU NVIDIA
+cargo run --release --features vulkan # Avec GPU universel
 
-# Mode CPU (par défaut)
-cargo run --release
-
-# Ou avec accélération GPU NVIDIA (recommandé si disponible)
-cargo run --release --features cuda
-
-# Le serveur écoute par défaut sur http://0.0.0.0:3000
-```
-
-### 2. Démarrer le Client (Frontend)
-
-Ouvrez un second terminal à la racine du projet :
-
-```bash
+# Terminal 2 — Client
 cd marianne/marianne-client
-
-# Installation des dépendances (la première fois)
 npm install
-
-# Lancement de l'application de bureau
 npm run dev
 ```
 
-Au premier lancement, le client vous demandera de configurer la connexion au serveur (par défaut `http://127.0.0.1:3000`).
+### Compilation GPU du serveur
 
-## ⚡ Compilation du serveur avec support GPU
-
-**Par défaut, le serveur est compilé en mode CPU uniquement**. Pour des performances optimales, compilez le serveur avec le support matériel approprié :
-
-### GPU NVIDIA (CUDA) — Performances maximales
 ```bash
-# Prérequis : CUDA Toolkit ≥ 12.0
 cd marianne/marianne-server
+
+# NVIDIA (CUDA) — performances maximales
 cargo build --release --features cuda
-```
 
-### GPU Universel (Vulkan) — AMD, Intel, NVIDIA
-```bash
-# Prérequis : Vulkan SDK
-cd marianne/marianne-server
+# AMD / Intel / NVIDIA (Vulkan) — universel
 cargo build --release --features vulkan
-```
 
-### Apple Silicon (Metal) — macOS (M1/M2/M3)
-```bash
-cd marianne/marianne-server
+# Apple Silicon (Metal)
 cargo build --release --features metal
 ```
 

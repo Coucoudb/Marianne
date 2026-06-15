@@ -60,16 +60,14 @@
     },
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        "dmg"
       ],
       "category": "public.app-category.productivity"
     },
     "linux": {
       "target": [
         "AppImage",
-        "deb",
-        "rpm"
+        "deb"
       ],
       "category": "Office",
       "maintainer": "Marianne AI <contact@marianne-ai.fr>"

@@ -61,70 +61,59 @@ jobs:
           body: |
             ## 🇫🇷 Marianne AI ${{ github.ref_name }}
 
-            Assistant administratif français. Architecture client-serveur avec IA déportée sur le serveur.
+            Assistant administratif français, 100% local et privé. Fonctionne en architecture client + serveur.
 
             ---
 
-            ### 🖥️ Application Client (Electron)
+            ### 🖥️ Application Client (à installer sur votre PC)
 
-            Client desktop qui se connecte au serveur marianne-server. Accès aux fichiers locaux et exécution de commandes.
+            > Le client se connecte au serveur Marianne pour accéder à l'IA.
 
-            | Système | Artefact |
-            |---------|----------|
-            | **Windows** | `marianne-client-windows-x64` (`.exe`) |
-            | **Linux** | `marianne-client-linux-x64` (`.AppImage` / `.deb` / `.rpm`) |
-            | **macOS** | `marianne-client-macos-arm64` (`.dmg`) |
+            | Système | Téléchargement | Type |
+            |---------|---------------|------|
+            | **Windows** | `Marianne AI Setup X.X.X.exe` | Installateur (recommandé) |
+            | **Windows** | `Marianne AI X.X.X.exe` | Portable (sans installation) |
+            | **macOS** | `Marianne AI-X.X.X-arm64.dmg` | Installateur |
+            | **Linux** | `Marianne AI-X.X.X.AppImage` | Portable (universel) |
+            | **Linux** | `marianne-client_X.X.X_amd64.deb` | Paquet Debian/Ubuntu |
 
-            **Configuration :**
-            - Au premier lancement, configurez l'URL du serveur marianne-server
-            - Par défaut : `http://localhost:3000`
-            - Pour un serveur distant : `http://votre-serveur:3000`
+            > 💡 **Premier lancement** : configurez l'URL du serveur (par défaut `http://localhost:3000`).
 
             ---
 
-            ### ⚙️ Serveur HTTP (`marianne-server`)
+            ### ⚙️ Serveur IA (`marianne-server`)
 
-            Serveur backend avec IA embarquée. Peut tourner sur une machine dédiée, un NAS, ou un serveur distant.
+            > Le serveur fait tourner l'IA. Il peut être sur le même PC ou sur une machine dédiée.
 
-            **Choisissez la variante adaptée à votre matériel :**
+            **Choisissez la variante adaptée à votre carte graphique :**
 
-            | Système | Variante | Accélération GPU | Archive |
-            |---------|----------|------------------|---------|
-            | **Windows** | CPU | ❌ CPU uniquement | `marianne-server-windows-x64-cpu.zip` |
-            | **Windows** | CUDA | ✅ GPU NVIDIA | `marianne-server-windows-x64-cuda.zip` |
-            | **Windows** | Vulkan | ✅ GPU universel | `marianne-server-windows-x64-vulkan.zip` |
-            | **Linux** | CPU | ❌ CPU uniquement | `marianne-server-linux-x64-cpu.tar.gz` |
-            | **Linux** | CUDA | ✅ GPU NVIDIA | `marianne-server-linux-x64-cuda.tar.gz` |
-            | **Linux** | Vulkan | ✅ GPU universel | `marianne-server-linux-x64-vulkan.tar.gz` |
-            | **macOS** | CPU | ❌ CPU uniquement | `marianne-server-macos-arm64-cpu.tar.gz` |
-            | **macOS** | Metal | ✅ GPU Apple Silicon | `marianne-server-macos-arm64-metal.tar.gz` |
-
-            **Quelle variante choisir ?**
-            - **NVIDIA RTX/GTX** → CUDA (meilleure performance) ou Vulkan (fallback)
-            - **AMD/Intel** → Vulkan
-            - **Apple Silicon** → Metal
-            - **Pas de GPU ou CPU puissant** → CPU
+            | Système | Votre GPU | Archive à télécharger |
+            |---------|-----------|----------------------|
+            | **Windows** | NVIDIA RTX/GTX | `marianne-server-windows-x64-cuda.zip` |
+            | **Windows** | AMD / Intel / Autre | `marianne-server-windows-x64-vulkan.zip` |
+            | **Windows** | Pas de GPU | `marianne-server-windows-x64-cpu.zip` |
+            | **Linux** | NVIDIA RTX/GTX | `marianne-server-linux-x64-cuda.tar.gz` |
+            | **Linux** | AMD / Intel / Autre | `marianne-server-linux-x64-vulkan.tar.gz` |
+            | **Linux** | Pas de GPU | `marianne-server-linux-x64-cpu.tar.gz` |
+            | **macOS** | Apple Silicon (M1/M2/M3/M4) | `marianne-server-macos-arm64-metal.tar.gz` |
+            | **macOS** | Pas de GPU dédié | `marianne-server-macos-arm64-cpu.tar.gz` |
 
             ```bash
-            # Lancer le serveur (écoute 127.0.0.1:3000 par défaut)
+            # Lancer le serveur
             ./marianne-server
 
             # Exposer sur le réseau local
             ./marianne-server --bind 0.0.0.0:3000
-
-            # Spécifier un répertoire de données
-            ./marianne-server --data-dir /var/lib/marianne
             ```
 
             ---
 
             ### ✨ Fonctionnalités
-            - **Architecture client-serveur** : serveur puissant + clients légers
-            - LLM embarqué côté serveur (modèle téléchargé au premier lancement)
-            - RAG hybride : base vectorielle LanceDB + graphe de connaissances
-            - Corpus juridique français (CAF, URSSAF, retraite, logement, travail…)
-            - Recherche web sur sources officielles en temps réel
-            - Analyse de documents PDF/TXT/MD via le client
-            - **Accélération GPU côté serveur** : CUDA (NVIDIA), Vulkan (universel), Metal (Apple Silicon), ou CPU uniquement
+            - 🔒 **100% local** : vos données restent sur votre machine
+            - 🧠 LLM embarqué côté serveur (modèle téléchargé au premier lancement)
+            - 📚 Base de connaissances juridique française (CAF, URSSAF, retraite, logement, travail…)
+            - 🔍 Recherche web sur sources officielles en temps réel
+            - 📄 Analyse de documents PDF/TXT/MD
+            - 🚀 Accélération GPU : CUDA, Vulkan, Metal ou CPU
           files: artifacts/**/*
 
