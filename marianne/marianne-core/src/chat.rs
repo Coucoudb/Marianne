@@ -371,16 +371,17 @@ pub async fn process_chat(
     let mut final_response = String::new();
     let mut total_tokens = 0usize;
     let max_tool_loops = 5;
+    let mut has_searched_web = should_search_web;
 
     for loop_idx in 0..max_tool_loops {
         let llm_state = state.llm.clone();
         let abort_flag = state.abort_generation.clone();
-        abort_flag.store(false, Ordering::SeqCst);
         let tx_clone = tx.clone();
         let conv_id_clone = conv_id.clone();
         let prompt_clone = current_prompt.clone();
+        let has_searched_web_clone = has_searched_web;
 
-        let (response_text, tokens, was_aborted) = tokio::task::spawn_blocking(move || {
+        let (response_text, tokens, was_tool_aborted, was_reflection_aborted) = tokio::task::spawn_blocking(move || {
             let mut guard = llm_state.lock();
             let engine = guard
                 .as_mut()
@@ -391,6 +392,7 @@ pub async fn process_chat(
             let mut tokens_count = 0usize;
             let mut accumulated = String::new();
             let mut is_tool_aborted = false;
+            let mut is_reflection_aborted = false;
 
             let response = engine.generate_streaming(&prompt_clone, max_tokens, |token| {
                 if abort_flag.load(Ordering::SeqCst) {
@@ -403,6 +405,22 @@ pub async fn process_chat(
                 if accumulated.contains("</tool_call>") {
                     is_tool_aborted = true;
                     return false;
+                }
+
+                // --- Réflexion: Si l'IA indique ne pas savoir, déclencher la recherche web ---
+                if !has_searched_web_clone && tokens_count < 80 && accumulated.len() > 15 {
+                    let lower = accumulated.to_lowercase();
+                    if lower.contains("pas d'information")
+                        || lower.contains("aucune information")
+                        || lower.contains("ne mentionne pas")
+                        || lower.contains("je ne dispose pas")
+                        || lower.contains("je n'ai pas d'information")
+                        || lower.contains("je ne sais pas")
+                        || lower.contains("le contexte fourni ne contient pas")
+                    {
+                        is_reflection_aborted = true;
+                        return false; // Interrompre le LLM
+                    }
                 }
 
                 if let Some(batch) = streamer.push(token) {
@@ -435,15 +453,62 @@ pub async fn process_chat(
                 });
             }
 
-            Ok::<(String, usize, bool), anyhow::Error>((response, tokens_count, is_tool_aborted))
+            Ok::<(String, usize, bool, bool), anyhow::Error>((response, tokens_count, is_tool_aborted, is_reflection_aborted))
         })
         .await??;
 
         total_tokens += tokens;
+
+        // Si réflexion déclenchée, on efface le début de réponse et on lance la recherche web
+        if was_reflection_aborted {
+            tracing::info!("💡 Boucle de réflexion : L'IA manque d'informations. Déclenchement d'une recherche web profonde...");
+            has_searched_web = true;
+            
+            let _ = tx.send(ChatEvent::WebSearchStatus {
+                conversation_id: conv_id.clone(),
+                status: "searching".to_string(),
+                sources_count: 0,
+            }).await;
+            
+            let web_results = match WebSearcher::new() {
+                Ok(ws) => ws.search(&request.message, "general", 3).await.unwrap_or_default(),
+                Err(e) => {
+                    tracing::warn!("Erreur init web searcher: {}", e);
+                    Vec::new()
+                }
+            };
+            
+            let mut new_web_ctx = String::new();
+            for (i, res) in web_results.iter().take(3).enumerate() {
+                new_web_ctx.push_str(&format!("Source Web {} ({}):\n{}\n\n", i + 1, res.url, res.content));
+            }
+            
+            if !new_web_ctx.is_empty() {
+                // Notifier client que la recherche est finie
+                let _ = tx.send(ChatEvent::WebSearchStatus {
+                    conversation_id: conv_id.clone(),
+                    status: "done".to_string(),
+                    sources_count: web_results.len(),
+                }).await;
+                
+                // Mettre à jour le contexte et reconstruire le prompt
+                let new_full_context = format!("{}\n\n{}", full_context, new_web_ctx);
+                current_prompt = build_prompt(&request.message, &new_full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills);
+                
+                // On efface la réponse générée pour que l'interface ne la garde pas
+                let _ = tx.send(ChatEvent::StreamToken {
+                    token: "\n*(Recherche web effectuée, je recalcule ma réponse...)*\n\n".to_string(),
+                    conversation_id: conv_id.clone(),
+                }).await;
+                
+                continue; // Relancer la génération avec le nouveau contexte
+            }
+        }
+
         final_response.push_str(&response_text);
         current_prompt.push_str(&response_text);
 
-        if was_aborted && response_text.contains("<tool_call>") {
+        if was_tool_aborted && response_text.contains("<tool_call>") {
             if let Some(start) = response_text.find("<tool_call>") {
                 if let Some(end) = response_text.find("</tool_call>") {
                     let json_str = &response_text[start + 11..end];

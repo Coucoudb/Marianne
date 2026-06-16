@@ -424,33 +424,43 @@ impl LlmEngine {
             LlamaSampler::dist(1234),
         ]);
 
-        // 4. Phase de prefill — encoder le prompt
-        let mut batch = LlamaBatch::new(prompt_len.max(512), 1);
+        // 4. Phase de prefill — encoder le prompt par morceaux pour éviter GGML_ASSERT(n_tokens_all <= cparams.n_batch)
+        let max_batch_size = 512;
+        let mut n_cur = 0;
 
-        for (i, &token) in tokens_list.iter().enumerate() {
-            let is_last = i == prompt_len - 1;
-            batch
-                .add(token, i as i32, &[0], is_last)
-                .context("Erreur ajout token au batch")?;
+        while n_cur < prompt_len {
+            let chunk_size = (prompt_len - n_cur).min(max_batch_size);
+            let mut batch = LlamaBatch::new(chunk_size, 1);
+
+            for i in 0..chunk_size {
+                let token_idx = n_cur + i;
+                let token = tokens_list[token_idx];
+                let is_last = token_idx == prompt_len - 1;
+                batch
+                    .add(token, token_idx as i32, &[0], is_last)
+                    .context("Erreur ajout token au batch")?;
+            }
+
+            ctx.decode(&mut batch)
+                .map_err(|e| {
+                    let err_msg = format!("{:?}", e);
+                    let mut hint = String::from("Erreur prefill (encodage du prompt)");
+                    
+                    // Diagnostic hint: Débordement de contexte
+                    if err_msg.contains("context") 
+                        || err_msg.contains("overflow") 
+                        || err_msg.contains("exceed") {
+                        hint.push_str(&format!("\n💡 Conseil : Le prompt ({} tokens) est trop long. Essayez :", prompt_len));
+                        hint.push_str(&format!("\n   • Réduire la longueur du prompt (max: {} tokens)", self.config.context_length));
+                        hint.push_str("\n   • Augmenter la taille du contexte dans la configuration");
+                        hint.push_str("\n   • Résumer le contenu RAG avant injection");
+                    }
+                    
+                    anyhow::anyhow!("{} : {:?}", hint, e)
+                })?;
+            
+            n_cur += chunk_size;
         }
-
-        ctx.decode(&mut batch)
-            .map_err(|e| {
-                let err_msg = format!("{:?}", e);
-                let mut hint = String::from("Erreur prefill (encodage du prompt)");
-                
-                // Diagnostic hint: Débordement de contexte
-                if err_msg.contains("context") 
-                    || err_msg.contains("overflow") 
-                    || err_msg.contains("exceed") {
-                    hint.push_str(&format!("\n💡 Conseil : Le prompt ({} tokens) est trop long. Essayez :", prompt_len));
-                    hint.push_str(&format!("\n   • Réduire la longueur du prompt (max: {} tokens)", self.config.context_length));
-                    hint.push_str("\n   • Augmenter la taille du contexte dans la configuration");
-                    hint.push_str("\n   • Résumer le contenu RAG avant injection");
-                }
-                
-                anyhow::anyhow!("{} : {:?}", hint, e)
-            })?;
 
         tracing::info!("Premier token généré (prefill terminé)");
 
@@ -460,6 +470,7 @@ impl LlmEngine {
         let mut n_cur = prompt_len as i32;
         let mut watchdog = super::watchdog::GenerationWatchdog::new();
         let mut decoder = encoding_rs::UTF_8.new_decoder();
+        let mut batch = LlamaBatch::new(512, 1);
 
         let eos_token = self.model.token_eos();
 
