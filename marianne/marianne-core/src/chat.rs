@@ -2,7 +2,7 @@
 // Pipeline de chat générique — sans dépendance Tauri ni HTTP.
 // Le transport (IPC Tauri, SSE Axum, …) est découplé via un Sender<ChatEvent>.
 
-use crate::llm::confidence::{detect_category, evaluate_rag_confidence, is_conversational, is_off_topic, OFF_TOPIC_RESPONSE};
+use crate::llm::confidence::{detect_category, evaluate_rag_confidence, is_conversational, is_off_topic, requires_web_search, OFF_TOPIC_RESPONSE};
 use crate::llm::streamer::BatchStreamer;
 use crate::prompts::system::build_prompt;
 use crate::rag::feedback::ingest_web_results;
@@ -220,14 +220,20 @@ pub async fn process_chat(
             .await;
     }
 
+    // Forcer la recherche web pour les questions temporelles/actualité
+    let force_web = requires_web_search(&request.message);
+    if force_web {
+        tracing::info!("Question temporelle/actualité détectée — recherche web forcée");
+    }
+
     let should_search_web = if let Some(a) = &agent {
         if let Some(w) = &a.web_search {
             w.enabled
         } else {
-            confidence.should_search_web
+            confidence.should_search_web || force_web
         }
     } else {
-        confidence.should_search_web
+        confidence.should_search_web || force_web
     };
 
     // 2. Recherche web optionnelle
@@ -344,7 +350,17 @@ pub async fn process_chat(
     };
 
     let profile = state.profile.lock().clone();
-    let prompt = build_prompt(&request.message, &full_context, &history, &profile, agent.as_ref(), &agent_skills);
+
+    // Charger les mémoires persistantes pour le contexte cross-session
+    let memories = state.history.get_memories().await.unwrap_or_default();
+    let memory_context = if memories.is_empty() {
+        String::new()
+    } else {
+        let items: Vec<String> = memories.iter().map(|m| format!("- {} : {}", m.key, m.value)).collect();
+        format!("MÉMOIRE PERSISTANTE (faits appris lors de conversations précédentes) :\n{}", items.join("\n"))
+    };
+
+    let prompt = build_prompt(&request.message, &full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills);
     tracing::info!(
         "Prompt construit ({} caractères) — lancement de la génération...",
         prompt.len()
@@ -503,6 +519,14 @@ pub async fn process_chat(
         .save_turn(&conv_id, &request.message, &cleaned_response)
         .await
         .ok();
+
+    // 5b. Extraire et sauvegarder les mémoires persistantes
+    let history_db = state.history.clone();
+    let msg_for_mem = request.message.clone();
+    let conv_id_mem = conv_id.clone();
+    tokio::spawn(async move {
+        extract_and_save_memories(&history_db, &msg_for_mem, &conv_id_mem).await;
+    });
 
     // 6. Événement de fin
     let _ = tx
@@ -841,4 +865,71 @@ fn extract_domain(url: &str) -> String {
         .replace("www.", "")
         .replace("www2.", "")
         .to_lowercase()
+}
+
+// ─── Extraction de mémoires persistantes ────────────────────────────────────
+
+use crate::history::sqlite::HistoryDb;
+use std::sync::Arc;
+
+/// Extraire des faits mémorisables du message utilisateur et les sauvegarder
+async fn extract_and_save_memories(
+    history: &Arc<HistoryDb>,
+    user_message: &str,
+    conversation_id: &str,
+) {
+    let q = user_message.to_lowercase();
+
+    // Patterns d'auto-présentation
+    let patterns: Vec<(&str, &[&str])> = vec![
+        ("prenom", &[
+            "je m'appelle ", "je m appelle ", "mon prénom est ", "mon prenom est ",
+            "moi c'est ", "moi c est ",
+        ]),
+        ("profession", &[
+            "je suis ", "je travaille comme ", "je travaille en tant que ",
+            "mon métier ", "ma profession ",
+        ]),
+        ("localisation", &[
+            "j'habite ", "j habite ", "je vis à ", "je vis a ",
+            "je suis de ", "je réside ",
+        ]),
+        ("situation_familiale", &[
+            "je suis marié", "je suis marie", "je suis célibataire", "je suis celibataire",
+            "je suis divorcé", "je suis divorce",
+            "je suis pacsé", "je suis pacse",
+            "j'ai des enfants", "j ai des enfants",
+        ]),
+        ("statut", &[
+            "je suis auto-entrepreneur", "je suis autoentrepreneur",
+            "je suis salarié", "je suis salarie",
+            "je suis fonctionnaire",
+            "je suis étudiant", "je suis etudiant",
+            "je suis retraité", "je suis retraite",
+            "je suis au chômage", "je suis au chomage",
+            "je suis indépendant", "je suis independant",
+        ]),
+    ];
+
+    for (key, prefixes) in patterns {
+        for prefix in prefixes.iter() {
+            if let Some(pos) = q.find(prefix) {
+                let start = pos + prefix.len();
+                let value: String = user_message[start..]
+                    .chars()
+                    .take(80)
+                    .take_while(|c| *c != '.' && *c != ',' && *c != '!' && *c != '?' && *c != '\n')
+                    .collect();
+                let value = value.trim().to_string();
+                if value.len() >= 2 && value.len() <= 80 {
+                    if let Err(e) = history.save_memory(key, &value, Some(conversation_id)).await {
+                        tracing::debug!("Erreur sauvegarde mémoire '{}': {}", key, e);
+                    } else {
+                        tracing::info!("Mémoire persistante sauvée : {} = '{}'", key, value);
+                    }
+                    break;
+                }
+            }
+        }
+    }
 }

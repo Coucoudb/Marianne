@@ -188,10 +188,24 @@ export class ApiClient {
   // ═══════════════════════════════════════════════════════════════════════
 
   /**
+   * GET /api/v1/history/conversations - List all conversations
+   * 
+   * @returns Array of conversation summaries
+   */
+  async listConversations(): Promise<any[]> {
+    try {
+      const res = await this.fetch('/api/v1/history/conversations');
+      return res.json();
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * GET /api/v1/history/:conversation_id - Get conversation history
    * 
    * @param conversationId - Conversation ID
-   * @returns Array of conversation turns (user/assistant messages)
+   * @returns Array of conversation messages (role/content/timestamp)
    */
   async getConversationHistory(conversationId: string): Promise<ConversationTurn[]> {
     const res = await this.fetch(`/api/v1/history/${conversationId}`);

@@ -2,7 +2,7 @@
 //! Si le score est bas, Marianne déclenche la recherche web complémentaire
 
 /// Seuil de base de confiance pour ne pas déclencher la recherche web
-const BASE_CONFIDENCE_THRESHOLD: f32 = 0.45;
+const BASE_CONFIDENCE_THRESHOLD: f32 = 0.55;
 
 /// Message de refus pour les questions hors sujet (Désactivé)
 pub const OFF_TOPIC_RESPONSE: &str = "Je suis un agent IA, comment puis-je vous aider ?";
@@ -105,6 +105,47 @@ pub fn is_conversational(query: &str) -> bool {
     false
 }
 
+/// Détecter si une question nécessite obligatoirement une recherche web
+/// (questions temporelles, actualité, événements récents, dates spécifiques)
+pub fn requires_web_search(query: &str) -> bool {
+    let q = query.to_lowercase();
+
+    // Dates récentes ou spécifiques (ex: "loi du 26 mai 2026", "décret de janvier 2025")
+    let date_patterns = [
+        "202", "loi du ", "décret du ", "arrêté du ", "circulaire du ",
+        "texte du ", "réforme du ", "réforme de ",
+    ];
+    let has_date_ref = date_patterns.iter().any(|p| q.contains(p));
+
+    // Marqueurs de temporalité/actualité
+    let temporal_markers = [
+        "récemment", "récente", "récent", "dernière", "dernier",
+        "nouveau", "nouvelle", "nouveaux", "nouvelles",
+        "actualité", "actualite", "actualités",
+        "cette année", "ce mois", "cette semaine",
+        "en vigueur", "entré en vigueur", "entre en vigueur",
+        "dernières nouvelles", "dernieres nouvelles",
+        "mis à jour", "mise à jour", "mis a jour",
+        "changement", "changements",
+        "dernière réforme", "derniere reforme",
+        "à partir de", "a partir de",
+        "depuis le ", "à compter du", "a compter du",
+    ];
+    let has_temporal = temporal_markers.iter().any(|m| q.contains(m));
+
+    // Questions sur des montants/barèmes qui changent annuellement
+    let annual_data = [
+        "montant du smic", "smic horaire", "smic mensuel",
+        "plafond sécurité sociale", "barème", "bareme",
+        "plafond caf", "montant rsa", "montant apl",
+        "montant prime", "taux d'intérêt", "taux d'usure",
+        "inflation",
+    ];
+    let has_annual = annual_data.iter().any(|m| q.contains(m));
+
+    has_date_ref || has_temporal || has_annual
+}
+
 /// Évaluer la confiance à partir des résultats RAG
 pub fn evaluate_rag_confidence(
     rag_scores: &[f32],
@@ -126,21 +167,38 @@ pub fn evaluate_rag_confidence(
     // Facteurs de confiance
     let mut confidence: f32 = 0.0;
 
-    // Score du meilleur résultat (0-0.4)
-    confidence += best_score * 0.4;
+    // Score du meilleur résultat (0-0.35)
+    confidence += best_score * 0.35;
 
-    // Moyenne des scores (0-0.3)
-    confidence += avg_score * 0.3;
+    // Moyenne des scores (0-0.25)
+    confidence += avg_score * 0.25;
 
-    // Nombre de résultats pertinents (0-0.15)
-    let relevant_count = rag_scores.iter().filter(|&&s| s > 0.3).count();
-    confidence += (relevant_count.min(3) as f32 / 3.0) * 0.15;
+    // Nombre de résultats vraiment pertinents (score > 0.5) — (0-0.2)
+    let highly_relevant = rag_scores.iter().filter(|&&s| s > 0.5).count();
+    let somewhat_relevant = rag_scores.iter().filter(|&&s| s > 0.3).count();
+    confidence += (highly_relevant.min(3) as f32 / 3.0) * 0.2;
 
-    // Ratio contexte/question (0-0.15)
+    // Ratio contexte/question (0-0.1)
     if query_len > 0 {
         let ratio = (rag_context_len as f32 / query_len as f32).min(10.0) / 10.0;
-        confidence += ratio * 0.15;
+        confidence += ratio * 0.1;
     }
+
+    // Malus : si les scores sont faibles malgré beaucoup de résultats
+    // (le RAG retourne du bruit, pas de l'info pertinente)
+    if best_score < 0.4 && somewhat_relevant == 0 {
+        confidence *= 0.6; // Réduire de 40%
+    } else if best_score < 0.5 && highly_relevant == 0 {
+        confidence *= 0.8; // Réduire de 20%
+    }
+
+    // Bonus : contexte substantiel ET scores élevés
+    if rag_context_len > 500 && best_score > 0.7 && highly_relevant >= 2 {
+        confidence += 0.1;
+    }
+
+    // Plafonner à 1.0
+    confidence = confidence.min(1.0);
 
     let should_search_web = confidence < BASE_CONFIDENCE_THRESHOLD;
 

@@ -84,7 +84,27 @@
 
     // Initialize API client
     await apiClient.init();
+
+    // Charger les conversations persistantes depuis le serveur
+    await loadConversationsFromServer();
   });
+
+  async function loadConversationsFromServer() {
+    if (connectionStatus !== 'connected') return;
+    try {
+      const serverConversations = await apiClient.listConversations();
+      if (serverConversations.length > 0) {
+        conversations = serverConversations.map((c: any) => ({
+          id: c.id,
+          preview: c.first_message_preview || c.title || 'Conversation',
+          timestamp: (c.last_message_at || c.created_at || 0) * 1000,
+          messageCount: c.message_count || 0
+        }));
+      }
+    } catch (err) {
+      console.warn('Failed to load conversations from server:', err);
+    }
+  }
 
   async function testConnection() {
     connectionStatus = 'testing';
@@ -340,10 +360,10 @@
 
     try {
       const history = await apiClient.getConversationHistory(convId);
-      msgs = history.map((turn, i) => ({
-        id: `${turn.timestamp}-${i}`,
-        role: turn.role,
-        content: turn.content
+      msgs = history.map((msg: any, i: number) => ({
+        id: `${msg.timestamp || Date.now()}-${i}`,
+        role: msg.role,
+        content: msg.content
       }));
     } catch (err) {
       console.error('Failed to load history:', err);

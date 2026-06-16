@@ -62,6 +62,9 @@ async fn main() -> Result<()> {
     let core_state = AppState::new(data_dir);
     core_state.workspace.init().await?;
 
+    // Initialiser la base de données historique (crée les tables si absentes)
+    core_state.history.initialize().await?;
+
     // Installation et configuration automatique au démarrage
     if let Err(e) = marianne_core::setup::ensure_model_ready(&core_state).await {
         tracing::error!("❌ Échec de l'initialisation automatique : {:#}", e);

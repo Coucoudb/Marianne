@@ -92,21 +92,28 @@ fn summarize_old_history(turns: &[ConversationTurn]) -> String {
         return String::new();
     }
 
-    // Extraire les sujets clés des échanges précédents
+    // Extraire les sujets clés des échanges précédents (question + extrait de réponse)
     let topics: Vec<String> = turns.iter().map(|t| {
         // Prendre les 80 premiers caractères de la question utilisateur
-        let summary: String = t.user.chars().take(80).collect();
-        // Couper proprement au dernier espace
-        if let Some(pos) = summary.rfind(' ') {
-            summary[..pos].to_string()
+        let q_summary: String = t.user.chars().take(80).collect();
+        let q_clean = if let Some(pos) = q_summary.rfind(' ') {
+            q_summary[..pos].to_string()
         } else {
-            summary
-        }
+            q_summary
+        };
+        // Prendre les 60 premiers caractères de la réponse
+        let a_summary: String = t.assistant.chars().take(60).collect();
+        let a_clean = if let Some(pos) = a_summary.rfind(' ') {
+            a_summary[..pos].to_string()
+        } else {
+            a_summary
+        };
+        format!("Q: {} / R: {}", q_clean, a_clean)
     }).collect();
 
     format!(
-        "Résumé des échanges précédents : l'utilisateur a posé des questions sur : {}.",
-        topics.join(" ; ")
+        "Résumé des échanges précédents :\n{}",
+        topics.join("\n")
     )
 }
 
@@ -116,6 +123,7 @@ fn summarize_old_history(turns: &[ConversationTurn]) -> String {
 pub fn build_prompt(
     user_question: &str,
     rag_context: &str,
+    memory_context: &str,
     conversation_history: &[ConversationTurn],
     profile: &crate::profile::UserProfile,
     agent: Option<&crate::workspace::agent::Agent>,
@@ -200,6 +208,12 @@ pub fn build_prompt(
         prompt.push_str(&profile_context);
     }
 
+    // Injecter les mémoires persistantes (cross-session)
+    if !memory_context.is_empty() {
+        prompt.push_str("\n\n");
+        prompt.push_str(memory_context);
+    }
+
     prompt.push_str("<|end|>\n");
 
     // Calculer l'espace restant pour le contexte RAG
@@ -225,7 +239,7 @@ pub fn build_prompt(
 
     // Historique de conversation avec résumé intelligent
     if !conversation_history.is_empty() {
-        let recent_count = 3.min(conversation_history.len());
+        let recent_count = 5.min(conversation_history.len());
         let old_count = conversation_history.len().saturating_sub(recent_count);
 
         // Résumer les anciens échanges (avant les 3 derniers) en une phrase

@@ -25,6 +25,10 @@ fn api_routes() -> Router<ServerState> {
     Router::new()
         .route("/chat", axum::routing::post(chat::chat_handler))
         .route(
+            "/history/conversations",
+            get(history::list_conversations_handler),
+        )
+        .route(
             "/history/:conversation_id",
             get(history::get_history_handler),
         )
