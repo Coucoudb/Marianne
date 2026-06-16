@@ -4,12 +4,18 @@
 
   export let disabled = false;
 
-  const dispatch = createEventDispatcher<{ send: string }>();
+  const dispatch = createEventDispatcher<{ send: { prompt: string; deepThink: boolean }; deepThinkChange: boolean }>();
 
   let inputValue = '';
   let attachedFile: { name: string; path: string; extractedText?: string } | null = null;
   let extracting = false;
   let extractError = '';
+  export let deepThinkEnabled = false;
+
+  function toggleDeepThink() {
+    deepThinkEnabled = !deepThinkEnabled;
+    dispatch('deepThinkChange', deepThinkEnabled);
+  }
 
   function handleSubmit() {
     if ((!inputValue.trim() && !attachedFile) || disabled) return;
@@ -25,7 +31,7 @@
     inputValue = '';
     attachedFile = null;
     extractError = '';
-    dispatch('send', prompt);
+    dispatch('send', { prompt, deepThink: deepThinkEnabled });
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -120,6 +126,20 @@
       id="chat-input"
     />
     <div class="input-actions">
+      <button
+        class="action-btn deepthink-btn"
+        class:active={deepThinkEnabled}
+        on:click={toggleDeepThink}
+        title={deepThinkEnabled ? "DeepThink activé — cliquer pour désactiver" : "Activer DeepThink (raisonnement approfondi)"}
+        aria-label="Mode DeepThink"
+        type="button"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/>
+          <line x1="10" y1="21" x2="14" y2="21"/>
+          <line x1="10" y1="17" x2="14" y2="17"/>
+        </svg>
+      </button>
       <button
         class="action-btn attach-btn"
         on:click={handleFileAttach}
@@ -337,5 +357,21 @@
     opacity: 0.35;
     cursor: not-allowed;
     transform: none;
+  }
+
+  .deepthink-btn {
+    color: var(--text-secondary);
+    background: transparent;
+    transition: color var(--transition-fast), background-color var(--transition-fast);
+  }
+  .deepthink-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    transform: none;
+    box-shadow: none;
+  }
+  .deepthink-btn.active {
+    color: var(--bleu-france);
+    background-color: var(--bleu-france-subtle);
   }
 </style>

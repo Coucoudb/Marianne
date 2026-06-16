@@ -4,7 +4,7 @@
 
 use crate::llm::confidence::{detect_category, evaluate_rag_confidence, is_conversational, is_off_topic, requires_web_search, OFF_TOPIC_RESPONSE};
 use crate::llm::streamer::BatchStreamer;
-use crate::prompts::system::build_prompt;
+use crate::prompts::system::{build_deep_think_prompt, build_prompt};
 use crate::rag::feedback::ingest_web_results;
 use crate::rag::retriever::Retriever;
 use crate::state::AppState;
@@ -22,6 +22,7 @@ pub struct ChatRequest {
     pub conversation_id: Option<String>,
     pub max_tokens: Option<usize>,
     pub agent_id: Option<String>,
+    pub deep_think: Option<bool>,
 }
 
 /// Tous les événements émis pendant le pipeline de chat.
@@ -47,6 +48,11 @@ pub enum ChatEvent {
         conversation_id: String,
         status: String,
         sources_count: usize,
+    },
+    DeepThinkStep {
+        phase: String,
+        content: String,
+        conversation_id: String,
     },
     StreamToken {
         token: String,
@@ -235,6 +241,8 @@ pub async fn process_chat(
     } else {
         confidence.should_search_web || force_web
     };
+    // DeepThink force la recherche web pour enrichir le contexte
+    let should_search_web = should_search_web || request.deep_think == Some(true);
 
     // 2. Recherche web optionnelle
     let (web_context, all_sources) = if should_search_web && !is_conv {
@@ -360,7 +368,12 @@ pub async fn process_chat(
         format!("MÉMOIRE PERSISTANTE (faits appris lors de conversations précédentes) :\n{}", items.join("\n"))
     };
 
-    let prompt = build_prompt(&request.message, &full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills);
+    let is_deep_think = request.deep_think == Some(true);
+    let prompt = if is_deep_think {
+        build_deep_think_prompt(&request.message, &full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills)
+    } else {
+        build_prompt(&request.message, &full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills)
+    };
     tracing::info!(
         "Prompt construit ({} caractères) — lancement de la génération...",
         prompt.len()
@@ -373,6 +386,11 @@ pub async fn process_chat(
     let max_tool_loops = 5;
     let mut has_searched_web = should_search_web;
 
+    // En mode DeepThink, on force la boucle de réflexion + recherche web
+    if is_deep_think {
+        has_searched_web = false;
+    }
+
     for loop_idx in 0..max_tool_loops {
         let llm_state = state.llm.clone();
         let abort_flag = state.abort_generation.clone();
@@ -380,6 +398,7 @@ pub async fn process_chat(
         let conv_id_clone = conv_id.clone();
         let prompt_clone = current_prompt.clone();
         let has_searched_web_clone = has_searched_web;
+        let is_deep_think_clone = is_deep_think;
 
         let (response_text, tokens, was_tool_aborted, was_reflection_aborted) = tokio::task::spawn_blocking(move || {
             let mut guard = llm_state.lock();
@@ -393,6 +412,13 @@ pub async fn process_chat(
             let mut accumulated = String::new();
             let mut is_tool_aborted = false;
             let mut is_reflection_aborted = false;
+
+            // État DeepThink : parse les blocs <think>...</think>
+            let mut in_think_block = false;
+            let mut think_buffer = String::new();
+            let mut think_phase = "thinking".to_string();
+            let mut think_opened = false;
+            let mut think_closed = false;
 
             let response = engine.generate_streaming(&prompt_clone, max_tokens, |token| {
                 if abort_flag.load(Ordering::SeqCst) {
@@ -423,6 +449,52 @@ pub async fn process_chat(
                     }
                 }
 
+                // --- Mode DeepThink : state machine <think>...</think> ---
+                if is_deep_think_clone {
+                    if !think_opened && accumulated.contains("<think>") {
+                        think_opened = true;
+                        in_think_block = true;
+                        let lower = accumulated.to_lowercase();
+                        if lower.contains("décomposition") || lower.contains("sous-tâche") {
+                            think_phase = "decomposition".to_string();
+                        } else {
+                            think_phase = "thinking".to_string();
+                        }
+                        // Ne pas émettre le token <think>
+                        return true;
+                    }
+                    if think_opened && !think_closed && accumulated.contains("</think>") {
+                        think_closed = true;
+                        in_think_block = false;
+                        // Envoyer le buffer restant avec phase synthesis
+                        if !think_buffer.trim().is_empty() {
+                            let _ = tx_clone.blocking_send(ChatEvent::DeepThinkStep {
+                                phase: "synthesis".to_string(),
+                                content: think_buffer.clone(),
+                                conversation_id: conv_id_clone.clone(),
+                            });
+                            think_buffer.clear();
+                        }
+                        return true;
+                    }
+                    if in_think_block {
+                        think_buffer.push_str(token);
+                        // Émettre par chunks (phrase terminée ou buffer > 120 chars)
+                        if (think_buffer.ends_with('.') || think_buffer.ends_with('\n') || think_buffer.len() > 120)
+                            && !think_buffer.trim().is_empty()
+                        {
+                            let chunk = think_buffer.clone();
+                            think_buffer.clear();
+                            let _ = tx_clone.blocking_send(ChatEvent::DeepThinkStep {
+                                phase: think_phase.clone(),
+                                content: chunk,
+                                conversation_id: conv_id_clone.clone(),
+                            });
+                        }
+                        return true; // Ne pas émettre comme StreamToken
+                    }
+                }
+
                 if let Some(batch) = streamer.push(token) {
                     let _ = tx_clone.blocking_send(ChatEvent::StreamToken {
                         token: batch,
@@ -449,6 +521,15 @@ pub async fn process_chat(
             if let Some(remaining) = streamer.flush() {
                 let _ = tx_clone.blocking_send(ChatEvent::StreamToken {
                     token: remaining,
+                    conversation_id: conv_id_clone.clone(),
+                });
+            }
+
+            // Flush residual think_buffer if the LLM stopped inside an unclosed <think> block
+            if in_think_block && !think_buffer.trim().is_empty() {
+                let _ = tx_clone.blocking_send(ChatEvent::DeepThinkStep {
+                    phase: think_phase,
+                    content: think_buffer,
                     conversation_id: conv_id_clone.clone(),
                 });
             }
@@ -493,7 +574,11 @@ pub async fn process_chat(
                 
                 // Mettre à jour le contexte et reconstruire le prompt
                 let new_full_context = format!("{}\n\n{}", full_context, new_web_ctx);
-                current_prompt = build_prompt(&request.message, &new_full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills);
+                current_prompt = if is_deep_think {
+                    build_deep_think_prompt(&request.message, &new_full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills)
+                } else {
+                    build_prompt(&request.message, &new_full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills)
+                };
                 
                 // On efface la réponse générée pour que l'interface ne la garde pas
                 let _ = tx.send(ChatEvent::StreamToken {
@@ -533,6 +618,7 @@ pub async fn process_chat(
                                         conversation_id: None,
                                         max_tokens: Some(2000),
                                         agent_id: Some(tgt.id),
+                                        deep_think: None,
                                     };
                                     let (sub_tx, mut sub_rx) = tokio::sync::mpsc::channel(100);
                                     let state_clone = state.clone();
@@ -576,6 +662,8 @@ pub async fn process_chat(
     }
 
     let elapsed = start_time.elapsed().as_millis() as u64;
+    // Retirer les blocs <think>...</think> de la réponse finale (mode DeepThink)
+    let final_response = strip_think_blocks(&final_response);
     let cleaned_response = truncate_gibberish(&strip_meta_notes(&final_response));
 
     // 5. Sauvegarder dans l'historique
@@ -609,6 +697,29 @@ pub async fn process_chat(
 }
 
 // ─── Fonctions utilitaires (privées) ────────────────────────────────────────
+
+/// Supprimer tous les blocs <think>...</think> d'un texte (mode DeepThink)
+fn strip_think_blocks(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut remaining = text;
+    loop {
+        if let Some(open) = remaining.find("<think>") {
+            result.push_str(&remaining[..open]);
+            if let Some(close_rel) = remaining[open..].find("</think>") {
+                remaining = &remaining[open + close_rel + "</think>".len()..];
+                // Consommer un éventuel saut de ligne après </think>
+                remaining = remaining.trim_start_matches('\n');
+            } else {
+                // Pas de fermeture : couper le reste
+                break;
+            }
+        } else {
+            result.push_str(remaining);
+            break;
+        }
+    }
+    result
+}
 
 fn format_web_context(results: &[WebResult]) -> String {
     if results.is_empty() {

@@ -22,6 +22,7 @@ export interface ChatMessage {
   confidence?: number;
   sources?: string[];
   stats?: { time_ms: number; tokens_generated: number };
+  thinkingSteps?: Array<{ phase: string; content: string }>;
 }
 
 export interface DownloadProgress {
@@ -145,6 +146,7 @@ export interface ChatRequest {
   conversation_id?: string | null;
   max_tokens?: number;
   agent_id?: string | null;
+  deep_think?: boolean;
 }
 
 export interface StreamTokenEvent {
@@ -157,6 +159,12 @@ export interface GenerationDoneEvent {
   conversation_id: string;
   tokens_generated: number;
   generation_time_ms: number;
+}
+
+export interface DeepThinkStepEvent {
+  phase: string;
+  content: string;
+  conversation_id: string;
 }
 
 export interface ConfidenceInfo {

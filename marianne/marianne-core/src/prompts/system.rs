@@ -280,6 +280,44 @@ pub fn build_prompt(
     prompt
 }
 
+/// Suffix ajouté au prompt système pour activer le mode DeepThink
+pub const DEEP_THINK_SUFFIX: &str = r#"
+
+MODE DEEPTHINK — RAISONNEMENT APPROFONDI ACTIVÉ :
+Tu DOIS raisonner étape par étape avant de répondre, en utilisant les balises <think>...</think>.
+Structure ton raisonnement ainsi :
+<think>
+[DÉCOMPOSITION] : Quelles sont les sous-questions à résoudre ?
+[HYPOTHÈSES] : Quelles pistes, formules ou règles s'appliquent ?
+[VÉRIFICATION] : Mon raisonnement est-il cohérent ? Y a-t-il des contradictions ?
+[SYNTHÈSE] : Quelle est la conclusion logique ?
+</think>
+
+Ensuite, donne ta réponse finale claire et directe, SANS balises <think>."#;
+
+/// Construire un prompt avec les instructions DeepThink (Chain of Thought)
+pub fn build_deep_think_prompt(
+    user_question: &str,
+    rag_context: &str,
+    memory_context: &str,
+    conversation_history: &[ConversationTurn],
+    profile: &crate::profile::UserProfile,
+    agent: Option<&crate::workspace::agent::Agent>,
+    skills: &[crate::workspace::skill::Skill],
+) -> String {
+    let base = build_prompt(user_question, rag_context, memory_context, conversation_history, profile, agent, skills);
+
+    // Le format Phi-3 est : <|system|>\n{system}<|end|>\n
+    // On insère DEEP_THINK_SUFFIX juste avant le premier <|end|>
+    if let Some(pos) = base.find("<|end|>") {
+        let mut result = base;
+        result.insert_str(pos, DEEP_THINK_SUFFIX);
+        result
+    } else {
+        format!("{}{}", base, DEEP_THINK_SUFFIX)
+    }
+}
+
 /// Tronquer un texte à une frontière de phrase (. ! ?) sans couper au milieu d'un mot
 fn truncate_at_boundary(text: &str, max_chars: usize) -> String {
     if text.len() <= max_chars {

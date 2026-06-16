@@ -61,6 +61,10 @@ pub async fn chat_handler(
             ChatEvent::OfflineMode { .. } => Event::default()
                 .event("offline-mode")
                 .data(serde_json::to_string(&event).unwrap_or_default()),
+
+            ChatEvent::DeepThinkStep { .. } => Event::default()
+                .event("deep-think-step")
+                .data(serde_json::to_string(&event).unwrap_or_default()),
         };
         Ok::<Event, Infallible>(sse_event)
     });

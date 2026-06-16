@@ -33,6 +33,24 @@
     return 'var(--error)';
   }
 
+  let expandedThinking: Set<string> = new Set();
+  function toggleThinking(msgId: string) {
+    if (expandedThinking.has(msgId)) {
+      expandedThinking.delete(msgId);
+    } else {
+      expandedThinking.add(msgId);
+    }
+    expandedThinking = expandedThinking;
+  }
+  function phaseLabel(phase: string): string {
+    switch (phase) {
+      case 'decomposition': return '🔍 Décomposition';
+      case 'thinking': return '💡 Raisonnement';
+      case 'synthesis': return '✅ Synthèse';
+      default: return '🧠 Réflexion';
+    }
+  }
+
   const suggestions = [
     { icon: '📋', title: 'Droit du travail', desc: 'Contrats, licenciement, congés', prompt: 'Quels sont mes droits en cas de licenciement ?' },
     { icon: '💶', title: 'Aides sociales', desc: 'CAF, RSA, APL, prime d\'activité', prompt: 'Comment faire une demande de RSA ?' },
@@ -95,6 +113,29 @@
                 <span class="analyzing-text">Analyse du document en cours...</span>
               </div>
             {:else if msg.role === 'assistant'}
+              {#if msg.thinkingSteps && msg.thinkingSteps.length > 0}
+                <div class="deepthink-container">
+                  <button
+                    class="deepthink-toggle"
+                    on:click={() => toggleThinking(msg.id)}
+                    aria-expanded={expandedThinking.has(msg.id)}
+                  >
+                    <span class="deepthink-icon">🧠</span>
+                    <span class="deepthink-label">DeepThink — {msg.thinkingSteps.length} étape{msg.thinkingSteps.length > 1 ? 's' : ''}</span>
+                    <span class="deepthink-chevron" class:open={expandedThinking.has(msg.id)}>▼</span>
+                  </button>
+                  {#if expandedThinking.has(msg.id)}
+                    <div class="deepthink-steps">
+                      {#each msg.thinkingSteps as step}
+                        <div class="deepthink-step">
+                          <span class="step-phase">{phaseLabel(step.phase)}</span>
+                          <p class="step-content">{step.content}</p>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
               <div class="markdown-body">
                 {@html parseMarkdown(msg.content)}
               </div>
@@ -569,5 +610,63 @@
 
   .stat-sep {
     opacity: 0.4;
+  }
+
+  /* ─── DEEPTHINK ────────────────────────────────────────── */
+
+  .deepthink-container {
+    margin-bottom: var(--spacing-sm);
+    border: 1px solid var(--bleu-france-subtle);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .deepthink-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: var(--bleu-france-subtle);
+    border: none;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--bleu-france);
+    text-align: left;
+    font-family: var(--font-family);
+  }
+  .deepthink-toggle:hover {
+    background: color-mix(in srgb, var(--bleu-france) 15%, transparent);
+  }
+  .deepthink-chevron {
+    margin-left: auto;
+    transition: transform var(--transition-fast);
+    font-size: 0.7rem;
+  }
+  .deepthink-chevron.open {
+    transform: rotate(180deg);
+  }
+  .deepthink-steps {
+    padding: var(--spacing-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    background: var(--bg-primary);
+  }
+  .deepthink-step {
+    padding: var(--spacing-xs);
+    border-left: 2px solid var(--bleu-france);
+  }
+  .step-phase {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--bleu-france);
+    display: block;
+    margin-bottom: 2px;
+  }
+  .step-content {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    margin: 0;
+    white-space: pre-wrap;
   }
 </style>

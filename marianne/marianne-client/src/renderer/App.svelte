@@ -250,7 +250,7 @@
 
   // ─── Chat ──────────────────────────────────────────────
 
-  async function sendMessage(prompt: string) {
+  async function sendMessage({ prompt, deepThink }: { prompt: string; deepThink: boolean }) {
     if (!prompt.trim() || generating) return;
 
     generating = true;
@@ -278,6 +278,7 @@
         prompt,
         true,
         false,
+        deepThink,
         (token) => {
           if (tokenBuffer === '') {
             assistantMsg.thinking = false;
@@ -314,6 +315,11 @@
         (error) => {
           errorMessage = error;
           generating = false;
+        },
+        (step) => {
+          if (!assistantMsg.thinkingSteps) assistantMsg.thinkingSteps = [];
+          assistantMsg.thinkingSteps = [...assistantMsg.thinkingSteps, step];
+          msgs = msgs;
         }
       );
 
@@ -372,7 +378,7 @@
   }
 
   function handleSuggestion(e: CustomEvent<string>) {
-    sendMessage(e.detail);
+    sendMessage({ prompt: e.detail, deepThink: false });
   }
 
   function openSettings(tab: 'connection' | 'profile' | 'models' | 'agents' | 'skills' = 'connection') {

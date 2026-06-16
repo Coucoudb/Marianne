@@ -100,9 +100,11 @@ export class ApiClient {
     userMessage: string,
     useRag: boolean = true,
     useWebSearch: boolean = false,
+    deepThink: boolean = false,
     onToken: (token: string) => void,
     onMetadata: (data: any) => void,
     onError: (error: string) => void,
+    onDeepThinkStep?: (step: { phase: string; content: string }) => void,
     signal?: AbortSignal
   ): Promise<string> {
     if (!this.baseUrl) {
@@ -112,7 +114,8 @@ export class ApiClient {
     const url = `${this.baseUrl}/api/v1/chat`;
     const body: ChatRequest = {
       message: userMessage,
-      conversation_id: conversationId
+      conversation_id: conversationId,
+      deep_think: deepThink
     };
 
     const response = await fetch(url, {
@@ -144,14 +147,28 @@ export class ApiClient {
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
+        let eventName = '';
         for (const line of lines) {
-          if (!line.trim() || !line.startsWith('data: ')) continue;
-
+          if (line.startsWith('event: ')) {
+            eventName = line.slice(7).trim();
+            continue;
+          }
+          if (!line.trim() || !line.startsWith('data: ')) {
+            if (!line.trim()) eventName = '';
+            continue;
+          }
           const data = line.slice(6);
           if (data === '[DONE]') continue;
 
           try {
             const parsed = JSON.parse(data);
+
+            // deep-think-step event
+            if (eventName === 'deep-think-step' && onDeepThinkStep && parsed.phase && parsed.content) {
+              onDeepThinkStep({ phase: parsed.phase, content: parsed.content });
+              eventName = '';
+              continue;
+            }
 
             // stream-token event
             if (parsed.token) {
@@ -164,13 +181,14 @@ export class ApiClient {
             }
 
             // Pass all metadata events to callback
-            if (parsed.assistant_message || parsed.score || parsed.status || parsed.message) {
+            if (parsed.assistant_message || parsed.score !== undefined || parsed.status || parsed.message) {
               onMetadata(parsed);
             }
 
             if (parsed.error) {
               onError(parsed.error);
             }
+            eventName = '';
           } catch (e) {
             console.warn('Failed to parse SSE data:', data, e);
           }
