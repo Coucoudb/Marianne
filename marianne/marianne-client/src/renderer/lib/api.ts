@@ -101,6 +101,7 @@ export class ApiClient {
     useRag: boolean = true,
     useWebSearch: boolean = false,
     deepThink: boolean = false,
+    agentId: string | null = null,
     onToken: (token: string) => void,
     onMetadata: (data: any) => void,
     onError: (error: string) => void,
@@ -115,7 +116,8 @@ export class ApiClient {
     const body: ChatRequest = {
       message: userMessage,
       conversation_id: conversationId,
-      deep_think: deepThink
+      deep_think: deepThink,
+      ...(agentId ? { agent_id: agentId } : {})
     };
 
     const response = await fetch(url, {

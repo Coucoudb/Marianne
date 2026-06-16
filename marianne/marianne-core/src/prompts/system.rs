@@ -128,6 +128,7 @@ pub fn build_prompt(
     profile: &crate::profile::UserProfile,
     agent: Option<&crate::workspace::agent::Agent>,
     skills: &[crate::workspace::skill::Skill],
+    workspace_dir: Option<&str>,
 ) -> String {
     // Budget max pour le prompt (en caractères)
     // 4096 tokens ≈ ~12000 chars en français, on utilise 9000 pour garder ~3000 chars pour la génération
@@ -198,6 +199,23 @@ pub fn build_prompt(
         }
     } else {
         prompt.push_str(SYSTEM_PROMPT);
+        // Quand un dossier de travail global est défini (bouton 📁), activer tous les outils
+        if let Some(dir) = workspace_dir {
+            let tools_block = format!(
+                "\n\nDOSSIER DE TRAVAIL : {dir}\n\
+                 Tu as accès complet à ce dossier. \
+                 Pour utiliser un outil, génère un bloc XML exact \
+                 <tool_call>{{\"action\": \"nom_outil\", \"args\": {{}}}}</tool_call>. \
+                 Attends la réponse avant de continuer.\n\
+                 - read_file : {{\"action\": \"read_file\", \"args\": {{\"path\": \"chemin_absolu\"}}}}\n\
+                 - write_file : {{\"action\": \"write_file\", \"args\": {{\"path\": \"chemin_absolu\", \"content\": \"contenu\"}}}}\n\
+                 - list_dir : {{\"action\": \"list_dir\", \"args\": {{\"path\": \"chemin_absolu_dossier\"}}}}\n\
+                 - run_command : {{\"action\": \"run_command\", \"args\": {{\"command\": \"commande_shell\"}}}}\n\
+                 - replace_file_content : {{\"action\": \"replace_file_content\", \"args\": {{\"path\": \"...\", \"old_text\": \"...\", \"new_text\": \"...\"}}}}\n\
+                 - grep_search : {{\"action\": \"grep_search\", \"args\": {{\"path\": \"...\", \"query\": \"...\"}}}}\n"
+            );
+            prompt.push_str(&tools_block);
+        }
     }
     prompt.push_str(type_instructions);
 
@@ -304,8 +322,9 @@ pub fn build_deep_think_prompt(
     profile: &crate::profile::UserProfile,
     agent: Option<&crate::workspace::agent::Agent>,
     skills: &[crate::workspace::skill::Skill],
+    workspace_dir: Option<&str>,
 ) -> String {
-    let base = build_prompt(user_question, rag_context, memory_context, conversation_history, profile, agent, skills);
+    let base = build_prompt(user_question, rag_context, memory_context, conversation_history, profile, agent, skills, workspace_dir);
 
     // Le format Phi-3 est : <|system|>\n{system}<|end|>\n
     // On insère DEEP_THINK_SUFFIX juste avant le premier <|end|>

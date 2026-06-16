@@ -23,6 +23,10 @@ export interface ChatMessage {
   sources?: string[];
   stats?: { time_ms: number; tokens_generated: number };
   thinkingSteps?: Array<{ phase: string; content: string }>;
+  /** Message envoyé en mode DeepThink — affiche l'animation à la place des points */
+  deepThink?: boolean;
+  /** Label affiché en mode DeepThink pendant que thinking=true (mis à jour en temps réel) */
+  thinkingPhase?: string;
 }
 
 export interface DownloadProgress {

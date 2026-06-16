@@ -4,8 +4,10 @@
 
   export let disabled = false;
 
-  const dispatch = createEventDispatcher<{ send: { prompt: string; deepThink: boolean }; deepThinkChange: boolean }>();
+  const dispatch = createEventDispatcher<{ send: { prompt: string; deepThink: boolean }; deepThinkChange: boolean; workspaceDirChange: string | null; agentChange: { id: string; name: string } | null }>();
 
+  export let workspaceDir: string | null = null;
+  export let activeAgent: { id: string; name: string } | null = null;
   let inputValue = '';
   let attachedFile: { name: string; path: string; extractedText?: string } | null = null;
   let extracting = false;
@@ -83,9 +85,50 @@
     attachedFile = null;
     extractError = '';
   }
+
+  async function handleWorkspaceSelect() {
+    try {
+      const dirs = await window.electronAPI.file.openDialog({
+        properties: ['openDirectory']
+      });
+      if (dirs && dirs.length > 0) {
+        dispatch('workspaceDirChange', dirs[0]);
+      }
+    } catch (error) {
+      console.error('Failed to open directory picker:', error);
+    }
+  }
+
+  function clearWorkspaceDir() {
+    dispatch('workspaceDirChange', null);
+  }
+
+  function clearAgent() {
+    dispatch('agentChange', null);
+  }
+
+  function workspaceDirLabel(path: string): string {
+    return path.replace(/\/+$/, '').replace(/\\+$/, '').split(/[\/\\]/).pop() || path;
+  }
 </script>
 
 <div class="input-area">
+  {#if workspaceDir}
+    <div class="workspace-badge">
+      <span class="workspace-icon">📁</span>
+      <span class="workspace-name" title={workspaceDir}>{workspaceDirLabel(workspaceDir)}</span>
+      <button class="workspace-clear" on:click={clearWorkspaceDir} title="Retirer le dossier de travail" aria-label="Retirer le dossier de travail">✕</button>
+    </div>
+  {/if}
+
+  {#if activeAgent}
+    <div class="agent-badge">
+      <span class="agent-icon">🤖</span>
+      <span class="agent-name">{activeAgent.name}</span>
+      <button class="agent-clear" on:click={clearAgent} title="Désactiver l'agent" aria-label="Désactiver l'agent">✕</button>
+    </div>
+  {/if}
+
   {#if attachedFile}
     <div class="attached-file" class:error={!!extractError}>
       <div class="file-info">
@@ -138,6 +181,18 @@
           <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/>
           <line x1="10" y1="21" x2="14" y2="21"/>
           <line x1="10" y1="17" x2="14" y2="17"/>
+        </svg>
+      </button>
+      <button
+        class="action-btn workspace-btn"
+        class:active={!!workspaceDir}
+        on:click={handleWorkspaceSelect}
+        title={workspaceDir ? `Dossier actif : ${workspaceDir} — cliquer pour changer` : "Définir un dossier de travail"}
+        aria-label="Dossier de travail"
+        type="button"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
         </svg>
       </button>
       <button
@@ -373,5 +428,133 @@
   .deepthink-btn.active {
     color: var(--bleu-france);
     background-color: var(--bleu-france-subtle);
+  }
+
+  /* ─── WORKSPACE BADGE ──────────────────────────────────── */
+
+  .workspace-badge {
+    max-width: 860px;
+    margin: 0 auto;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: color-mix(in srgb, var(--success, #18753c) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success, #18753c) 35%, transparent);
+    border-radius: var(--radius-md);
+    animation: slideUp var(--transition-fast) ease-out;
+  }
+
+  .workspace-icon {
+    font-size: 0.875rem;
+    flex-shrink: 0;
+  }
+
+  .workspace-name {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--success, #18753c);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .workspace-clear {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+    font-size: 0.7rem;
+    color: var(--text-tertiary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: var(--transition-fast);
+  }
+
+  .workspace-clear:hover {
+    background: color-mix(in srgb, var(--error, #ce0500) 15%, transparent);
+    color: var(--error, #ce0500);
+  }
+
+  /* ─── WORKSPACE BUTTON ─────────────────────────────────── */
+
+  .workspace-btn {
+    color: var(--text-secondary);
+    background: transparent;
+    transition: color var(--transition-fast), background-color var(--transition-fast);
+  }
+
+  .workspace-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    transform: none;
+    box-shadow: none;
+  }
+
+  .workspace-btn.active {
+    color: var(--success, #18753c);
+    background-color: color-mix(in srgb, var(--success, #18753c) 12%, transparent);
+  }
+
+  /* ─── AGENT BADGE ──────────────────────────────────────── */
+
+  .agent-badge {
+    max-width: 860px;
+    margin: 0 auto;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: color-mix(in srgb, var(--bleu-france, #000091) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--bleu-france, #000091) 30%, transparent);
+    border-radius: var(--radius-md);
+    animation: slideUp var(--transition-fast) ease-out;
+  }
+
+  .agent-icon {
+    font-size: 0.875rem;
+    flex-shrink: 0;
+  }
+
+  .agent-name {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--bleu-france, #000091);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .agent-clear {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+    font-size: 0.7rem;
+    color: var(--text-tertiary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: var(--transition-fast);
+  }
+
+  .agent-clear:hover {
+    background: color-mix(in srgb, var(--error, #ce0500) 15%, transparent);
+    color: var(--error, #ce0500);
   }
 </style>

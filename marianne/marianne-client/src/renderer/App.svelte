@@ -66,6 +66,11 @@
   let modelsLoading = false;
   let modelLoadingId: string | null = null;
 
+  // Workspace directory (bouton 📁 au-dessus du prompt)
+  let activeWorkspaceDir: string | null = null;
+  // Agent actif (sélectionné depuis la gestion des agents)
+  let activeAgent: { id: string; name: string } | null = null;
+
   onMount(async () => {
     // Load server config
     try {
@@ -84,6 +89,11 @@
 
     // Initialize API client
     await apiClient.init();
+
+    // Charger le dossier de travail actif depuis le serveur
+    try {
+      activeWorkspaceDir = await apiClient.getProjectDir();
+    } catch { /* ignore si le serveur n'est pas encore connecté */ }
 
     // Charger les conversations persistantes depuis le serveur
     await loadConversationsFromServer();
@@ -266,7 +276,9 @@
       id: (Date.now() + 1).toString(),
       role: 'assistant',
       content: '',
-      thinking: true
+      thinking: true,
+      deepThink,
+      thinkingPhase: 'Thinking...'
     };
     msgs = [...msgs, assistantMsg];
 
@@ -279,6 +291,7 @@
         true,
         false,
         deepThink,
+        activeAgent?.id ?? null,
         (token) => {
           if (tokenBuffer === '') {
             assistantMsg.thinking = false;
@@ -302,9 +315,14 @@
           if (metadata.score !== undefined) {
             (assistantMsg as any).confidence = metadata.score;
           }
-          if (metadata.message && metadata.status) {
-            if (metadata.status === 'searching') {
-              assistantMsg.webBadge = { text: 'Recherche web...', kind: 'searching' };
+          // Recherche web : mettre à jour le label DeepThink
+          if (metadata.status === 'started' || metadata.status === 'searching') {
+            assistantMsg.thinkingPhase = 'Searching...';
+            assistantMsg.webBadge = { text: 'Recherche web...', kind: 'searching' };
+          } else if (metadata.status === 'done') {
+            assistantMsg.thinkingPhase = 'Analyzing...';
+            if (assistantMsg.webBadge?.kind === 'searching') {
+              assistantMsg.webBadge = { text: `${metadata.sources_count ?? ''} source(s) trouvée(s)`, kind: 'done' };
             }
           }
           if (metadata.message && !metadata.status) {
@@ -319,6 +337,10 @@
         (step) => {
           if (!assistantMsg.thinkingSteps) assistantMsg.thinkingSteps = [];
           assistantMsg.thinkingSteps = [...assistantMsg.thinkingSteps, step];
+          // Mapper la phase DeepThink sur le label affiché
+          if (step.phase === 'decomposition') assistantMsg.thinkingPhase = 'Analyzing...';
+          else if (step.phase === 'thinking') assistantMsg.thinkingPhase = 'Computing...';
+          else if (step.phase === 'synthesis') assistantMsg.thinkingPhase = 'Synthesizing...';
           msgs = msgs;
         }
       );
@@ -374,6 +396,15 @@
     } catch (err) {
       console.error('Failed to load history:', err);
       errorMessage = 'Impossible de charger l\'historique';
+    }
+  }
+
+  async function handleWorkspaceDirChange(path: string | null) {
+    try {
+      await apiClient.setProjectDir(path);
+      activeWorkspaceDir = path;
+    } catch (err: any) {
+      errorMessage = err.message || 'Impossible de définir le dossier de travail';
     }
   }
 
@@ -439,7 +470,14 @@
 
     <main class="app-main">
       <ChatMessages {msgs} on:suggest={handleSuggestion} />
-      <InputArea on:send={(e) => sendMessage(e.detail)} disabled={generating || connectionStatus !== 'connected'} />
+      <InputArea
+        on:send={(e) => sendMessage(e.detail)}
+        disabled={generating || connectionStatus !== 'connected'}
+        workspaceDir={activeWorkspaceDir}
+        {activeAgent}
+        on:workspaceDirChange={(e) => handleWorkspaceDirChange(e.detail)}
+        on:agentChange={(e) => { activeAgent = e.detail; }}
+      />
     </main>
   </div>
 
@@ -745,6 +783,9 @@
         {#if settingsTab === 'agents'}
           <div class="section-label">Gestion des Agents</div>
           <AgentsManager on:select={(e) => {
+            const selected = e.detail;
+            // Toggle : cliquer sur le même agent le désélectionne
+            activeAgent = activeAgent?.id === selected.id ? null : { id: selected.id, name: selected.name };
             showSettings = false;
           }} />
         {/if}

@@ -368,11 +368,15 @@ pub async fn process_chat(
         format!("MÉMOIRE PERSISTANTE (faits appris lors de conversations précédentes) :\n{}", items.join("\n"))
     };
 
+    // Dossier de travail global (défini via le bouton 📁 dans l'UI)
+    let workspace_dir = state.workspace.get_project_dir()
+        .map(|p| p.to_string_lossy().into_owned());
+
     let is_deep_think = request.deep_think == Some(true);
     let prompt = if is_deep_think {
-        build_deep_think_prompt(&request.message, &full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills)
+        build_deep_think_prompt(&request.message, &full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills, workspace_dir.as_deref())
     } else {
-        build_prompt(&request.message, &full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills)
+        build_prompt(&request.message, &full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills, workspace_dir.as_deref())
     };
     tracing::info!(
         "Prompt construit ({} caractères) — lancement de la génération...",
@@ -575,9 +579,9 @@ pub async fn process_chat(
                 // Mettre à jour le contexte et reconstruire le prompt
                 let new_full_context = format!("{}\n\n{}", full_context, new_web_ctx);
                 current_prompt = if is_deep_think {
-                    build_deep_think_prompt(&request.message, &new_full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills)
+                    build_deep_think_prompt(&request.message, &new_full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills, workspace_dir.as_deref())
                 } else {
-                    build_prompt(&request.message, &new_full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills)
+                    build_prompt(&request.message, &new_full_context, &memory_context, &history, &profile, agent.as_ref(), &agent_skills, workspace_dir.as_deref())
                 };
                 
                 // On efface la réponse générée pour que l'interface ne la garde pas
@@ -640,7 +644,10 @@ pub async fn process_chat(
                                 None => Err(format!("Skill '{}' introuvable.", skill_name))
                             }
                         } else {
-                            let allowed_dir = agent.as_ref().and_then(|a| a.working_directory.clone());
+                            // allowed_dir : agent.working_directory en priorité, sinon workspace global
+                            let allowed_dir = agent.as_ref()
+                                .and_then(|a| a.working_directory.clone())
+                                .or_else(|| workspace_dir.clone());
                             crate::llm::tools::execute_tool(&tool_call, &allowed_dir).await
                         };
                         

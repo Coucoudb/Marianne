@@ -102,11 +102,20 @@
         <div class="message-bubble">
           <div class="message-content">
             {#if msg.thinking}
-              <div class="thinking-indicator">
-                <span class="dot" style="animation-delay: 0ms"></span>
-                <span class="dot" style="animation-delay: 150ms"></span>
-                <span class="dot" style="animation-delay: 300ms"></span>
-              </div>
+              {#if msg.deepThink}
+                <div class="deepthink-thinking">
+                  <span class="deepthink-thinking-dot"></span>
+                  <span class="deepthink-thinking-dot" style="animation-delay:200ms"></span>
+                  <span class="deepthink-thinking-dot" style="animation-delay:400ms"></span>
+                  <span class="deepthink-thinking-label" key={msg.thinkingPhase}>{msg.thinkingPhase || 'Thinking...'}</span>
+                </div>
+              {:else}
+                <div class="thinking-indicator">
+                  <span class="dot" style="animation-delay: 0ms"></span>
+                  <span class="dot" style="animation-delay: 150ms"></span>
+                  <span class="dot" style="animation-delay: 300ms"></span>
+                </div>
+              {/if}
             {:else if msg.analyzing}
               <div class="analyzing-indicator">
                 <span class="analyzing-icon">📄</span>
@@ -408,6 +417,47 @@
     background: var(--bleu-france);
     animation: typingDot 1.2s ease-in-out infinite;
     display: inline-block;
+  }
+
+  /* ─── DEEPTHINK THINKING ANIMATION ────────────────────── */
+
+  .deepthink-thinking {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: var(--spacing-xs) 0;
+  }
+
+  .deepthink-thinking-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--bleu-france, #000091);
+    opacity: 0.5;
+    animation: deepThinkPulse 1.2s ease-in-out infinite;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  .deepthink-thinking-label {
+    font-size: 0.8125rem;
+    font-style: italic;
+    color: var(--bleu-france, #000091);
+    opacity: 0.85;
+    animation: deepThinkFade 1.5s ease-in-out;
+    min-width: 120px;
+  }
+
+  @keyframes deepThinkPulse {
+    0%, 100% { opacity: 0.25; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.2); }
+  }
+
+  @keyframes deepThinkFade {
+    0% { opacity: 0; transform: translateY(4px); }
+    20% { opacity: 0.85; transform: translateY(0); }
+    80% { opacity: 0.85; }
+    100% { opacity: 0.85; }
   }
 
   .analyzing-indicator {
