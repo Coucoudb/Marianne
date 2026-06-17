@@ -479,6 +479,19 @@ pub async fn process_chat(
                             });
                             think_buffer.clear();
                         }
+                        // Pousser le texte qui suit </think> dans le même token vers le streamer
+                        let close_tag = "</think>";
+                        if let Some(rel_pos) = accumulated.rfind(close_tag) {
+                            let after_close = &accumulated[rel_pos + close_tag.len()..];
+                            if !after_close.is_empty() {
+                                if let Some(batch) = streamer.push(after_close) {
+                                    let _ = tx_clone.blocking_send(ChatEvent::StreamToken {
+                                        token: batch,
+                                        conversation_id: conv_id_clone.clone(),
+                                    });
+                                }
+                            }
+                        }
                         return true;
                     }
                     if in_think_block {
@@ -563,10 +576,13 @@ pub async fn process_chat(
                 }
             };
             
-            let mut new_web_ctx = String::new();
-            for (i, res) in web_results.iter().take(3).enumerate() {
-                new_web_ctx.push_str(&format!("Source Web {} ({}):\n{}\n\n", i + 1, res.url, res.content));
-            }
+            let relevant_fallback: Vec<WebResult> = web_results
+                .iter()
+                .filter(|r| is_web_result_relevant(r, &request.message))
+                .take(3)
+                .cloned()
+                .collect();
+            let new_web_ctx = format_web_context(&relevant_fallback);
             
             if !new_web_ctx.is_empty() {
                 // Notifier client que la recherche est finie
@@ -643,6 +659,25 @@ pub async fn process_chat(
                                 Some(skill) => Ok(skill.content),
                                 None => Err(format!("Skill '{}' introuvable.", skill_name))
                             }
+                        } else if tool_call.action == "web_search" {
+                            let query = tool_call.args.get("query").and_then(|v| v.as_str()).unwrap_or(&request.message);
+                            match WebSearcher::new() {
+                                Ok(ws) => match ws.search(query, category, 5).await {
+                                    Ok(results) => {
+                                        let relevant: Vec<WebResult> = results
+                                            .into_iter()
+                                            .filter(|r| is_web_result_relevant(r, query))
+                                            .collect();
+                                        if relevant.is_empty() {
+                                            Err("Aucun résultat web pertinent trouvé.".to_string())
+                                        } else {
+                                            Ok(format_web_context(&relevant))
+                                        }
+                                    }
+                                    Err(e) => Err(format!("Recherche web échouée : {}", e)),
+                                },
+                                Err(e) => Err(format!("Impossible d'initialiser le client web : {}", e)),
+                            }
                         } else {
                             // allowed_dir : agent.working_directory en priorité, sinon workspace global
                             let allowed_dir = agent.as_ref()
@@ -669,8 +704,9 @@ pub async fn process_chat(
     }
 
     let elapsed = start_time.elapsed().as_millis() as u64;
-    // Retirer les blocs <think>...</think> de la réponse finale (mode DeepThink)
-    let final_response = strip_think_blocks(&final_response);
+    // Retirer les blocs internes de la réponse finale
+    let mut final_response = strip_xml_blocks(&final_response, "think");
+    final_response = strip_xml_blocks(&final_response, "tool_call");
     let cleaned_response = truncate_gibberish(&strip_meta_notes(&final_response));
 
     // 5. Sauvegarder dans l'historique
@@ -705,16 +741,19 @@ pub async fn process_chat(
 
 // ─── Fonctions utilitaires (privées) ────────────────────────────────────────
 
-/// Supprimer tous les blocs <think>...</think> d'un texte (mode DeepThink)
-fn strip_think_blocks(text: &str) -> String {
+/// Supprimer tous les blocs d'un tag spécifique d'un texte
+fn strip_xml_blocks(text: &str, tag: &str) -> String {
+    let open_tag = format!("<{}>", tag);
+    let close_tag = format!("</{}>", tag);
+    
     let mut result = String::with_capacity(text.len());
     let mut remaining = text;
     loop {
-        if let Some(open) = remaining.find("<think>") {
+        if let Some(open) = remaining.find(&open_tag) {
             result.push_str(&remaining[..open]);
-            if let Some(close_rel) = remaining[open..].find("</think>") {
-                remaining = &remaining[open + close_rel + "</think>".len()..];
-                // Consommer un éventuel saut de ligne après </think>
+            if let Some(close_rel) = remaining[open..].find(&close_tag) {
+                remaining = &remaining[open + close_rel + close_tag.len()..];
+                // Consommer un éventuel saut de ligne après la fermeture
                 remaining = remaining.trim_start_matches('\n');
             } else {
                 // Pas de fermeture : couper le reste
@@ -733,7 +772,8 @@ fn format_web_context(results: &[WebResult]) -> String {
         return String::new();
     }
     let mut context = String::from(
-        "INFORMATIONS WEB (sources multiples à croiser — ne recopie PAS les en-têtes ni les URLs) :\n\
+        "INFORMATIONS WEB (sources multiples à croiser) :\n\
+         Tu DOIS citer la source de chaque information en utilisant un lien Markdown [Nom de la source](URL).\n\
          Priorise les informations des sources officielles (.gouv.fr, .fr institutionnel).\n\
          Si les sources se contredisent, mentionne-le et privilégie les sources officielles.\n\n",
     );
@@ -746,10 +786,11 @@ fn format_web_context(results: &[WebResult]) -> String {
         let content_extract: String = result.content.chars().take(500).collect();
         let clean_content = truncate_at_sentence(&content_extract);
         context.push_str(&format!(
-            "Source {} — {} ({}) :\n{}\n\n",
+            "Source {} — {} ({}) :\nURL: {}\nContenu:\n{}\n\n",
             i + 1,
             result.source_name,
             reliability,
+            result.url,
             clean_content
         ));
     }

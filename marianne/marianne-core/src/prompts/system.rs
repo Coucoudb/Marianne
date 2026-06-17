@@ -301,17 +301,18 @@ pub fn build_prompt(
 /// Suffix ajouté au prompt système pour activer le mode DeepThink
 pub const DEEP_THINK_SUFFIX: &str = r#"
 
-MODE DEEPTHINK — RAISONNEMENT APPROFONDI ACTIVÉ :
-Tu DOIS raisonner étape par étape avant de répondre, en utilisant les balises <think>...</think>.
-Structure ton raisonnement ainsi :
-<think>
-[DÉCOMPOSITION] : Quelles sont les sous-questions à résoudre ?
-[HYPOTHÈSES] : Quelles pistes, formules ou règles s'appliquent ?
-[VÉRIFICATION] : Mon raisonnement est-il cohérent ? Y a-t-il des contradictions ?
-[SYNTHÈSE] : Quelle est la conclusion logique ?
-</think>
-
-Ensuite, donne ta réponse finale claire et directe, SANS balises <think>."#;
+MODE DEEPTHINK — RAISONNEMENT ET ACTION (ReAct) ACTIVÉ :
+Tu DOIS raisonner étape par étape pour résoudre le problème.
+BOUCLE DE RÉSOLUTION :
+1. <think> Analyse la situation, décompose le problème en sous-tâches et décide de la prochaine action. </think>
+2. Si tu manques d'informations ou si le contexte ne suffit pas, appelle un outil :
+   - Recherche web : <tool_call>{"action": "web_search", "args": {"query": "ta requête précise"}}</tool_call>
+   - Lecture fichier : <tool_call>{"action": "read_file", "args": {"path": "chemin_absolu"}}</tool_call>
+   - Liste dossier : <tool_call>{"action": "list_dir", "args": {"path": "chemin_absolu_dossier"}}</tool_call>
+   - Exécuter commande : <tool_call>{"action": "run_command", "args": {"command": "commande_shell"}}</tool_call>
+3. IMPORTANT : Arrête-toi immédiatement de générer après le </tool_call>. Le système exécutera l'outil et te renverra <tool_result>...</tool_result>.
+4. Répète les étapes 1 à 3 autant de fois que nécessaire (maximum 5 itérations).
+5. Quand tu as rassemblé toutes les informations, rédige ta réponse finale complète et bien structurée SANS balises <think> ni <tool_call>."#;
 
 /// Construire un prompt avec les instructions DeepThink (Chain of Thought)
 pub fn build_deep_think_prompt(
