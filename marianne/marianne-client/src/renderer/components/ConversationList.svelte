@@ -1,5 +1,10 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import MessageSquareIcon from '@lucide/svelte/icons/message-square';
+  import FolderIcon from '@lucide/svelte/icons/folder';
+  import BlocksIcon from '@lucide/svelte/icons/blocks';
+  import SettingsIcon from '@lucide/svelte/icons/settings';
+  import PlusIcon from '@lucide/svelte/icons/plus';
 
   export let conversations: Array<{
     id: string;
@@ -9,11 +14,13 @@
   }> = [];
   export let activeConversationId: string | null = null;
   export let collapsed = false;
+  export let currentView: 'chat' | 'agents' | 'skills' | 'settings' = 'chat';
 
   const dispatch = createEventDispatcher<{
     select: string;
     new: void;
     toggle: void;
+    navigate: 'chat' | 'agents' | 'skills' | 'settings';
   }>();
 
   function formatRelativeTime(timestamp: number): string {
@@ -55,10 +62,30 @@
       on:click={() => dispatch('new')}
       aria-label="Nouvelle conversation"
     >
-      <span class="new-icon">+</span>
+      <PlusIcon size={16} />
       Nouvelle conversation
     </button>
 
+    <div class="nav-links">
+      <button class="nav-link" class:active={currentView === 'chat'} on:click={() => dispatch('navigate', 'chat')}>
+        <MessageSquareIcon size={16} />
+        Discussions
+      </button>
+      <button class="nav-link" class:active={currentView === 'agents'} on:click={() => dispatch('navigate', 'agents')}>
+        <FolderIcon size={16} />
+        Projets Agents
+      </button>
+      <button class="nav-link" class:active={currentView === 'skills'} on:click={() => dispatch('navigate', 'skills')}>
+        <BlocksIcon size={16} />
+        Skills
+      </button>
+      <button class="nav-link" class:active={currentView === 'settings'} on:click={() => dispatch('navigate', 'settings')}>
+        <SettingsIcon size={16} />
+        Personnaliser
+      </button>
+    </div>
+
+    {#if currentView === 'chat'}
     <div class="conversation-list">
       {#each conversations as conv, i (conv.id)}
         <button
@@ -81,6 +108,7 @@
         </div>
       {/each}
     </div>
+    {/if}
   </aside>
 {:else}
   <div class="sidebar-collapsed">
@@ -147,15 +175,14 @@
   }
 
   .new-conversation-btn {
-    margin: var(--spacing-md) var(--spacing-md) var(--spacing-sm);
+    margin: var(--spacing-md) var(--spacing-sm) var(--spacing-md);
     padding: var(--spacing-sm) var(--spacing-md);
-    background: var(--bleu-france);
-    color: white;
-    border: none;
-    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
     cursor: pointer;
-    font-size: 0.8125rem;
-    font-weight: 500;
+    font-size: 0.875rem;
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
@@ -164,15 +191,41 @@
   }
 
   .new-conversation-btn:hover {
-    background: var(--bleu-france-light);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
+    background: var(--surface-hover);
+    color: var(--text-primary);
   }
 
-  .new-icon {
-    font-size: 1rem;
-    font-weight: 300;
-    line-height: 1;
+  .nav-links {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 var(--spacing-sm) var(--spacing-md);
+  }
+
+  .nav-link {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: var(--transition-fast);
+    font-family: var(--font-family);
+  }
+
+  .nav-link:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  .nav-link.active {
+    background: var(--surface-2);
+    color: var(--text-primary);
+    font-weight: 500;
   }
 
   .conversation-list {

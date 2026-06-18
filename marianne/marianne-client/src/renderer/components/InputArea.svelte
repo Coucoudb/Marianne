@@ -167,7 +167,7 @@
       {disabled}
       rows="1"
       id="chat-input"
-    />
+    ></textarea>
     <div class="input-actions">
       <button
         class="action-btn deepthink-btn"

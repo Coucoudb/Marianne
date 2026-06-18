@@ -26,6 +26,9 @@ You are the **Code Reviewer** for the Marianne project — a comprehensive revie
 | **review-and-refactor** | Full review cycle: read → assess → fix → verify |
 | **security-review** | Detect injection, auth bypass, exposed secrets, insecure crypto |
 | **secret-scanning** | Pre-commit scan for hardcoded secrets, API keys, tokens |
+| **svelte-code-writer** | Analyze Svelte code, provide autofixes and documentation via `@sveltejs/mcp` |
+| **svelte-code-bestpractices** | Ensure idiomatic usage of Svelte 5 runes (`$state`, `$derived`), snippets, and event handlers |
+| **ponytail**, **ponytail-audit**, **ponytail-debt**, **ponytail-help**, **ponytail-review** | Challenge over-engineering, suggest the most minimal "lazy" alternative that works, manage debt |
 
 ## Review Workflow
 

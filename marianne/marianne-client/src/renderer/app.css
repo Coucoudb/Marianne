@@ -1,33 +1,33 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Geist+Mono&display=swap');
+@import "tailwindcss";
 
-:root {
+@theme {
     /* Couleurs Marianne — tricolore français */
-    --bleu-france: #000091;
-    --bleu-france-light: #1a1aab;
-    --bleu-france-subtle: #e3e3fd;
-    --rouge-marianne: #e1000f;
-    --rouge-marianne-soft: #c9191e;
-    --blanc: #ffffff;
-    --or-republique: #c9a759;
+    --color-bleu-france: #000091;
+    --color-bleu-france-light: #1a1aab;
+    --color-bleu-france-subtle: #e3e3fd;
+    --color-rouge-marianne: #e1000f;
+    --color-rouge-marianne-soft: #c9191e;
+    --color-blanc: #ffffff;
+    --color-or-republique: #c9a759;
 
     /* Couleurs UI — palette chaude */
-    --bg-primary: #f8f6f2;
-    --bg-secondary: #ffffff;
-    --bg-chat: #f4f2ee;
-    --bg-assistant: #ffffff;
-    --bg-hover: #f0eee9;
-    --text-primary: #1e1e1e;
-    --text-secondary: #6b6b6b;
-    --text-tertiary: #9a9a9a;
-    --border: #e5e1da;
-    --border-light: #f0ece6;
-    --accent: var(--bleu-france);
-    --success: #008941;
-    --success-soft: #e6f5ed;
-    --warning: #e07b00;
-    --warning-soft: #fff3e0;
-    --error: var(--rouge-marianne);
-    --error-soft: #fee;
+    --color-bg-primary: #f8f6f2;
+    --color-bg-secondary: #ffffff;
+    --color-bg-chat: #f4f2ee;
+    --color-bg-assistant: #ffffff;
+    --color-bg-hover: #f0eee9;
+    --color-text-primary: #1e1e1e;
+    --color-text-secondary: #6b6b6b;
+    --color-text-tertiary: #9a9a9a;
+    --color-border-custom: #e5e1da;
+    --color-border-light: #f0ece6;
+    --color-success: #008941;
+    --color-success-soft: #e6f5ed;
+    --color-warning: #e07b00;
+    --color-warning-soft: #fff3e0;
+    --color-error: var(--color-rouge-marianne);
+    --color-error-soft: #fee;
 
     /* Ombres */
     --shadow-xs: 0 1px 2px rgba(30, 30, 30, 0.04);
@@ -38,8 +38,8 @@
 
     /* Typographie */
     --font-family: "Inter", "Marianne", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: "Geist Mono", monospace;
     --font-size-base: 0.9375rem;
-    --line-height-base: 1.65;
 
     /* Spacing */
     --spacing-xs: 0.25rem;
@@ -57,11 +57,90 @@
     --radius-xl: 28px;
     --radius-full: 9999px;
 
-    /* Sidebar */
+    /* Variables utilitaires conservées */
     --sidebar-width: 280px;
     --sidebar-collapsed-width: 0px;
 
-    /* Transitions */
+    /* Shadcn required tokens */
+    --color-background: var(--color-bg-primary);
+    --color-foreground: var(--color-text-primary);
+    --color-card: var(--color-bg-secondary);
+    --color-card-foreground: var(--color-text-primary);
+    --color-popover: var(--color-bg-secondary);
+    --color-popover-foreground: var(--color-text-primary);
+    --color-primary: var(--color-bleu-france);
+    --color-primary-foreground: var(--color-blanc);
+    --color-secondary: var(--color-bg-chat);
+    --color-secondary-foreground: var(--color-text-primary);
+    --color-muted: var(--color-bg-hover);
+    --color-muted-foreground: var(--color-text-secondary);
+    --color-accent: var(--color-bg-hover);
+    --color-accent-foreground: var(--color-text-primary);
+    --color-destructive: var(--color-error);
+    --color-destructive-foreground: var(--color-error-soft);
+    --color-border: var(--color-border-custom);
+    --color-input: var(--color-border-custom);
+    --color-ring: var(--color-bleu-france-subtle);
+    --radius: var(--radius-md);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+:root {
+    /* Maintien des variables natives utilisées directement dans le code actuel (le temps de migrer) */
+    --bleu-france: var(--color-bleu-france);
+    --bleu-france-light: var(--color-bleu-france-light);
+    --bleu-france-subtle: var(--color-bleu-france-subtle);
+    --rouge-marianne: var(--color-rouge-marianne);
+    --rouge-marianne-soft: var(--color-rouge-marianne-soft);
+    --blanc: var(--color-blanc);
+    --or-republique: var(--color-or-republique);
+    --bg-primary: var(--color-bg-primary);
+    --bg-secondary: var(--color-bg-secondary);
+    --bg-chat: var(--color-bg-chat);
+    --bg-assistant: var(--color-bg-assistant);
+    --bg-hover: var(--color-bg-hover);
+    --text-primary: var(--color-text-primary);
+    --text-secondary: var(--color-text-secondary);
+    --text-tertiary: var(--color-text-tertiary);
+    --border: var(--color-border-custom);
+    --border-light: var(--color-border-light);
+    --accent: var(--color-bleu-france);
+    --success: var(--color-success);
+    --success-soft: var(--color-success-soft);
+    --warning: var(--color-warning);
+    --warning-soft: var(--color-warning-soft);
+    --error: var(--color-error);
+    --error-soft: var(--color-error-soft);
+    --shadow-xs: 0 1px 2px rgba(30, 30, 30, 0.04);
+    --shadow-sm: 0 1px 3px rgba(30, 30, 30, 0.06);
+    --shadow-md: 0 4px 12px rgba(30, 30, 30, 0.08);
+    --shadow-lg: 0 8px 24px rgba(30, 30, 30, 0.1);
+    --shadow-xl: 0 12px 40px rgba(30, 30, 30, 0.12);
+    --font-family: var(--font-family);
+    --font-size-base: 0.9375rem;
+    --line-height-base: 1.65;
+    --spacing-xs: 0.25rem;
+    --spacing-sm: 0.5rem;
+    --spacing-md: 1rem;
+    --spacing-lg: 1.5rem;
+    --spacing-xl: 2rem;
+    --spacing-2xl: 3rem;
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 12px;
+    --radius-lg: 20px;
+    --radius-xl: 28px;
+    --radius-full: 9999px;
+    --sidebar-width: 280px;
+    --sidebar-collapsed-width: 0px;
     --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
     --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
     --transition-smooth: 300ms cubic-bezier(0.4, 0, 0.2, 1);

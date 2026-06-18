@@ -1,15 +1,32 @@
 <script lang="ts">
-  import { onMount, createEventDispatcher } from 'svelte';
+  import { onMount } from 'svelte';
   import { apiClient, type Agent, type Skill, type SaveLevel } from '../lib/api';
   import { slide, fade } from 'svelte/transition';
-
-  let agents: Agent[] = [];
-  let availableSkills: Skill[] = [];
-  let loading = true;
-  let editingAgent: Agent | null = null;
-  let saveLevel: SaveLevel = 'server';
+  import { cubicOut } from 'svelte/easing';
   
-  const dispatch = createEventDispatcher();
+  import { Button } from "$lib/components/ui/button";
+  import * as Dialog from "$lib/components/ui/dialog";
+  import { Input } from "$lib/components/ui/input";
+  import * as Select from "$lib/components/ui/select";
+  import { Switch } from "$lib/components/ui/switch";
+  import * as Tooltip from "$lib/components/ui/tooltip";
+  import { Label } from "$lib/components/ui/label";
+
+  let { onselect, onsubroute } = $props<{
+    onselect?: (agent: Agent) => void;
+    onsubroute?: (label: string) => void;
+  }>();
+
+  let agents: Agent[] = $state([]);
+  let availableSkills: Skill[] = $state([]);
+  let loading = $state(true);
+  let view: 'list' | 'form' = $state('list');
+  
+  let editingAgent: Agent | null = $state(null);
+  let saveLevel: string = $state("server");
+  let pendingDeleteId: string | null = $state(null);
+  let isCreating = $state(false);
+  let errorMsg: string | null = $state(null);
 
   onMount(async () => {
     await loadAgents();
@@ -26,25 +43,31 @@
       availableSkills = skillsData;
     } catch (e) {
       console.error(e);
+      errorMsg = e instanceof Error ? e.message : 'Une erreur est survenue.';
     } finally {
       loading = false;
     }
   }
 
-  function toggleSkill(skillId: string) {
+  function toggleSkill(skillId: string, checked: boolean) {
     if (!editingAgent) return;
-    if (editingAgent.skills.includes(skillId)) {
-      editingAgent.skills = editingAgent.skills.filter(id => id !== skillId);
+    if (checked) {
+      if (!editingAgent.skills.includes(skillId)) editingAgent.skills.push(skillId);
     } else {
-      editingAgent.skills = [...editingAgent.skills, skillId];
+      editingAgent.skills = editingAgent.skills.filter(id => id !== skillId);
     }
   }
 
   function editAgent(agent: Agent) {
+    isCreating = false;
     editingAgent = { ...agent };
+    saveLevel = agent.level || "server";
+    view = 'form';
+    onsubroute?.('Éditer');
   }
 
   function createAgent() {
+    isCreating = true;
     editingAgent = {
       id: crypto.randomUUID(),
       name: 'Nouvel Agent',
@@ -54,355 +77,231 @@
       tools: [],
       working_directory: 'C:\\'
     };
+    saveLevel = "server";
+    view = 'form';
+    onsubroute?.('Nouveau');
+  }
+
+  function cancelForm() {
+    view = 'list';
+    editingAgent = null;
+    onsubroute?.('');
+  }
+  
+  function getSaveLevelLabel(val: string) {
+    if (val === 'project') return 'Projet (Dossier .marianne, pour Git)';
+    if (val === 'global') return 'Global (Préférences utilisateur)';
+    return 'Serveur (Défaut, stockage global)';
   }
 
   async function saveAgent() {
     if (!editingAgent) return;
     try {
-      await apiClient.saveAgent(editingAgent, saveLevel);
+      await apiClient.saveAgent(editingAgent, saveLevel as SaveLevel);
       await loadAgents();
+      errorMsg = null;
+      view = 'list';
       editingAgent = null;
+      onsubroute?.('');
     } catch (e) {
       console.error(e);
+      errorMsg = e instanceof Error ? e.message : 'Une erreur est survenue.';
     }
   }
 
-  async function deleteAgent(id: string) {
-    if (!confirm('Supprimer cet agent ?')) return;
+  function deleteAgent(id: string) {
+    pendingDeleteId = id;
+  }
+
+  async function confirmDelete() {
+    if (!pendingDeleteId) return;
     try {
-      await apiClient.deleteAgent(id);
+      await apiClient.deleteAgent(pendingDeleteId);
       await loadAgents();
+      errorMsg = null;
     } catch (e) {
       console.error(e);
+      errorMsg = e instanceof Error ? e.message : 'Une erreur est survenue.';
+    } finally {
+      pendingDeleteId = null;
     }
   }
 
-  function selectAgent(agent: Agent) {
-    dispatch('select', agent);
+  function doSelectAgent(agent: Agent) {
+    if (onselect) onselect(agent);
   }
 </script>
 
-<div class="agents-manager">
-  {#if editingAgent}
-    <div class="editor" in:slide>
-      <div class="header">
-        <h3>Éditer l'Agent</h3>
-        <button class="btn-icon" on:click={() => editingAgent = null}>✕</button>
-      </div>
-      <div class="form-group">
-        <label>Nom</label>
-        <input bind:value={editingAgent.name} type="text" placeholder="Nom de l'agent" />
-      </div>
-      <div class="form-group">
-        <label>Description</label>
-        <input bind:value={editingAgent.description} type="text" placeholder="Courte description" />
-      </div>
-      <div class="form-group">
-        <label>Sauvegarder dans :</label>
-        <select bind:value={saveLevel}>
-          <option value="server">Serveur (Défaut, stockage global Marianne)</option>
-          <option value="project">Projet (Dossier .marianne du projet actuel, idéal pour Git)</option>
-          <option value="global">Global (Préférences utilisateur, ~/.marianne)</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Prompt Système</label>
-        <textarea bind:value={editingAgent.system_prompt} placeholder="Instructions de l'agent..." rows="5"></textarea>
-      </div>
-      <div class="form-group">
-        <label>Dossier de travail autorisé</label>
-        <input bind:value={editingAgent.working_directory} type="text" placeholder="Ex: C:\ (C:\ pour accès total)" />
-      </div>
-      <div class="form-group">
-        <label>Compétences (Skills)</label>
-        <div class="skills-selector">
-          {#if availableSkills.length === 0}
-            <div class="empty-skills">Aucun skill disponible. Créez-en d'abord dans l'onglet Skills.</div>
-          {/if}
-          {#each availableSkills as skill}
-            <label class="skill-checkbox">
-              <input type="checkbox" checked={editingAgent.skills.includes(skill.id)} on:change={() => toggleSkill(skill.id)} />
-              <span class="skill-name">{skill.name}</span>
-            </label>
-          {/each}
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Outils Actifs (séparés par virgule)</label>
-        <input value={editingAgent.tools.join(', ')} on:change={(e) => editingAgent.tools = e.currentTarget.value.split(',').map(s=>s.trim()).filter(Boolean)} type="text" placeholder="read_file, write_file, replace_file_content, run_command, grep_search" />
-      </div>
-      <div class="actions">
-        <button class="btn primary" on:click={saveAgent}>Enregistrer</button>
-        <button class="btn" on:click={() => editingAgent = null}>Annuler</button>
-      </div>
+<div class="bg-card text-card-foreground border rounded-xl p-6 mb-6 shadow-md">
+  {#if view === 'list'}
+  {#if errorMsg}
+    <div class="mb-4 p-3 rounded-md bg-destructive/10 text-destructive text-sm flex justify-between items-center" role="alert">
+      <span>{errorMsg}</span>
+      <button class="ml-2 text-destructive/70 hover:text-destructive" aria-label="Fermer l'erreur" onclick={() => errorMsg = null}>✕</button>
+    </div>
+  {/if}
+  <div class="flex justify-between items-center mb-6" transition:fade={{ duration: 200, easing: cubicOut }}>
+    <h3 class="m-0 font-medium text-lg">Agents Spécialisés</h3>
+    <Button onclick={createAgent}>+ Nouvel Agent</Button>
+  </div>
+  
+  {#if loading}
+    <div class="py-8 text-center text-muted-foreground animate-pulse">Chargement des agents...</div>
+  {:else if agents.length === 0}
+    <div class="py-12 text-center text-muted-foreground italic flex flex-col items-center gap-2" transition:fade>
+      <span class="text-4xl opacity-30" aria-hidden="true">🤖</span>
+      <span>Aucun agent configuré.</span>
+      <span class="text-xs">Cliquez sur <strong>+ Nouvel Agent</strong> pour commencer.</span>
     </div>
   {:else}
-    <div class="list" in:fade>
-      <div class="header">
-        <h3>Agents Spécialisés</h3>
-        <button class="btn primary" on:click={createAgent}>+ Nouvel Agent</button>
-      </div>
-      
-      {#if loading}
-        <div class="loading">Chargement des agents...</div>
-      {:else if agents.length === 0}
-        <div class="empty">Aucun agent configuré.</div>
-      {:else}
-        <div class="grid">
-          {#each agents as agent}
-            <div class="agent-card">
-              <div class="agent-info">
-                <div class="agent-header-row">
-                  <h4>{agent.name}</h4>
-                  {#if agent.level}
-                    <span class="level-badge level-{agent.level}">
-                      {agent.level === 'global' ? '🌐 Global' : agent.level === 'project' ? '📁 Projet' : '🖥️ Serveur'}
-                    </span>
-                  {/if}
-                </div>
-                <p>{agent.description}</p>
-                <div class="tags">
-                  {#each agent.tools as tool}
-                    <span class="tag tool">{tool}</span>
-                  {/each}
-                </div>
-              </div>
-              <div class="agent-actions">
-                <button class="btn-icon" on:click={() => selectAgent(agent)} title="Discuter avec cet agent">💬</button>
-                <button class="btn-icon" on:click={() => editAgent(agent)} title="Éditer">✏️</button>
-                <button class="btn-icon danger" on:click={() => deleteAgent(agent.id)} title="Supprimer">🗑️</button>
-              </div>
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4" transition:fade={{ duration: 300 }}>
+      {#each agents as agent}
+        <div class="bg-muted/30 border rounded-lg p-4 flex flex-col justify-between transition-all hover:-translate-y-1 hover:shadow-lg">
+          <div class="mb-4">
+            <div class="flex items-center gap-2 mb-2">
+              <h4 class="m-0 font-semibold text-lg">{agent.name}</h4>
+              {#if agent.level}
+                <span class="text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap {agent.level === 'global' ? 'bg-blue-100 text-blue-600 border border-blue-200' : agent.level === 'project' ? 'bg-green-100 text-green-600 border border-green-200' : 'bg-gray-100 text-gray-600 border border-gray-200'}">
+                  {agent.level === 'global' ? '🌐 Global' : agent.level === 'project' ? '📁 Projet' : '🖥️ Serveur'}
+                </span>
+              {/if}
             </div>
-          {/each}
+            <p class="text-sm text-muted-foreground mb-4">{agent.description}</p>
+            <div class="flex flex-wrap gap-1.5 mb-2">
+              {#each agent.tools as tool}
+                <span class="text-xs px-2 py-1 rounded bg-primary/10 text-primary border border-primary/20">{tool}</span>
+              {/each}
+            </div>
+          </div>
+          <div class="flex gap-2 justify-end">
+            <Tooltip.Provider>
+              <Tooltip.Root>
+                <Tooltip.Trigger>
+                  <Button variant="ghost" size="icon" aria-label="Discuter avec cet agent" onclick={() => doSelectAgent(agent)}>💬</Button>
+                </Tooltip.Trigger>
+                <Tooltip.Content>Discuter avec cet agent</Tooltip.Content>
+              </Tooltip.Root>
+            </Tooltip.Provider>
+
+            <Tooltip.Provider>
+              <Tooltip.Root>
+                <Tooltip.Trigger>
+                  <Button variant="ghost" size="icon" aria-label="Éditer l'agent" onclick={() => editAgent(agent)}>✏️</Button>
+                </Tooltip.Trigger>
+                <Tooltip.Content>Éditer</Tooltip.Content>
+              </Tooltip.Root>
+            </Tooltip.Provider>
+            
+            <Tooltip.Provider>
+              <Tooltip.Root>
+                <Tooltip.Trigger>
+                  <Button variant="ghost" size="icon" aria-label="Supprimer l'agent" class="text-destructive hover:text-destructive hover:bg-destructive/10" onclick={() => deleteAgent(agent.id)}>🗑️</Button>
+                </Tooltip.Trigger>
+                <Tooltip.Content>Supprimer</Tooltip.Content>
+              </Tooltip.Root>
+            </Tooltip.Provider>
+          </div>
         </div>
-      {/if}
+      {/each}
     </div>
+  {/if}
+  {:else}
+  <!-- Full-page form -->
+  <div class="max-w-2xl mx-auto py-4">
+    {#if errorMsg}
+      <div class="mb-4 p-3 rounded-md bg-destructive/10 text-destructive text-sm flex justify-between items-center" role="alert">
+        <span>{errorMsg}</span>
+        <button class="ml-2 text-destructive/70 hover:text-destructive" aria-label="Fermer l'erreur" onclick={() => errorMsg = null}>✕</button>
+      </div>
+    {/if}
+
+    {#if editingAgent}
+      <div class="grid gap-4" transition:slide={{ duration: 300, easing: cubicOut }}>
+        <!-- Nom -->
+        <div class="grid gap-2">
+          <Label for="agent-name">Nom</Label>
+          <Input id="agent-name" bind:value={editingAgent.name} placeholder="Nom de l'agent" />
+        </div>
+        <!-- Description -->
+        <div class="grid gap-2">
+          <Label for="agent-desc">Description</Label>
+          <Input id="agent-desc" bind:value={editingAgent.description} placeholder="Courte description" />
+        </div>
+        <!-- Sauvegarder dans -->
+        <div class="grid gap-2">
+          <Label for="save-level-agent">Sauvegarder dans :</Label>
+          <Select.Root type="single" bind:value={saveLevel}>
+            <Select.Trigger id="save-level-agent" class="w-full">
+              {getSaveLevelLabel(saveLevel)}
+            </Select.Trigger>
+            <Select.Content>
+              <Select.Item value="server">Serveur (Défaut, stockage global)</Select.Item>
+              <Select.Item value="project">Projet (Dossier .marianne, pour Git)</Select.Item>
+              <Select.Item value="global">Global (Préférences utilisateur)</Select.Item>
+            </Select.Content>
+          </Select.Root>
+        </div>
+        <!-- Prompt Système -->
+        <div class="grid gap-2">
+          <Label for="agent-prompt">Prompt Système</Label>
+          <textarea id="agent-prompt" class="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" bind:value={editingAgent.system_prompt} placeholder="Instructions de l'agent..." rows="5"></textarea>
+        </div>
+        <!-- Dossier de travail -->
+        <div class="grid gap-2">
+          <Label for="agent-workdir">Dossier de travail autorisé</Label>
+          <Input id="agent-workdir" bind:value={editingAgent.working_directory} placeholder="Ex: C:\ (C:\ pour accès total)" />
+        </div>
+        <!-- Skills -->
+        <div class="grid gap-2">
+          <Label>Compétences (Skills)</Label>
+          <div class="flex flex-col gap-3 bg-muted/50 p-4 rounded-md border">
+            {#if availableSkills.length === 0}
+              <div class="text-sm text-muted-foreground italic">Aucun skill disponible. Créez-en d'abord dans l'onglet Skills.</div>
+            {/if}
+            {#each availableSkills as skill}
+              <div class="flex items-center space-x-2">
+                <Switch
+                  id="skill-{skill.id}"
+                  checked={editingAgent.skills.includes(skill.id)}
+                  onCheckedChange={(v) => toggleSkill(skill.id, v)}
+                />
+                <Label for="skill-{skill.id}" class="font-normal cursor-pointer">{skill.name}</Label>
+              </div>
+            {/each}
+          </div>
+        </div>
+        <!-- Outils -->
+        <div class="grid gap-2">
+          <Label for="agent-tools">Outils Actifs (séparés par virgule)</Label>
+          <Input
+            id="agent-tools"
+            value={editingAgent.tools.join(', ')}
+            oninput={(e) => editingAgent.tools = e.currentTarget.value.split(',').map(s=>s.trim()).filter(Boolean)}
+            placeholder="read_file, write_file, replace_file_content..."
+          />
+        </div>
+        <!-- Actions -->
+        <div class="flex justify-end gap-2 pt-2">
+          <Button variant="outline" onclick={cancelForm}>Annuler</Button>
+          <Button onclick={saveAgent}>Enregistrer</Button>
+        </div>
+      </div>
+    {/if}
+  </div>
   {/if}
 </div>
 
-<style>
-  .agents-manager {
-    background: var(--surface-2);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin-bottom: 1.5rem;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-  }
-
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1.5rem;
-  }
-  
-  .header h3 {
-    margin: 0;
-    font-weight: 500;
-    color: var(--text-color);
-  }
-
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 1rem;
-  }
-
-  .agent-card {
-    background: var(--surface-3);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 1rem;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    transition: transform 0.2s, box-shadow 0.2s;
-  }
-  
-  .agent-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  }
-
-  .agent-info h4 {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.1rem;
-  }
-
-  .agent-info p {
-    font-size: 0.9rem;
-    color: var(--text-muted);
-    margin: 0 0 1rem 0;
-  }
-
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    margin-bottom: 1rem;
-  }
-
-  .tag {
-    font-size: 0.75rem;
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
-    background: var(--surface-1);
-    border: 1px solid var(--border-color);
-  }
-  
-  .tag.tool {
-    background: rgba(var(--primary-color-rgb, 100, 100, 255), 0.1);
-    color: var(--primary-color, #88f);
-    border-color: rgba(var(--primary-color-rgb, 100, 100, 255), 0.3);
-  }
-
-  .agent-actions {
-    display: flex;
-    gap: 0.5rem;
-    justify-content: flex-end;
-  }
-
-  .form-group {
-    margin-bottom: 1rem;
-  }
-
-  .form-group label {
-    display: block;
-    margin-bottom: 0.4rem;
-    font-size: 0.9rem;
-    color: var(--text-muted);
-  }
-
-  .form-group input, .form-group textarea, .form-group select {
-    width: 100%;
-    padding: 0.7rem;
-    background: var(--surface-1);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    color: var(--text-color);
-    font-family: inherit;
-  }
-  
-  .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
-    border-color: var(--primary-color);
-    outline: none;
-  }
-
-  .actions {
-    display: flex;
-    gap: 1rem;
-    margin-top: 1.5rem;
-  }
-
-  .btn {
-    padding: 0.6rem 1.2rem;
-    border-radius: 6px;
-    border: 1px solid var(--border-color);
-    background: var(--surface-3);
-    color: var(--text-color);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  
-  .btn:hover {
-    background: var(--surface-hover);
-  }
-  
-  .btn.primary {
-    background: var(--primary-color, #4a90e2);
-    color: white;
-    border: none;
-  }
-  
-  .btn.primary:hover {
-    background: var(--primary-color-dark, #357abd);
-  }
-
-  .btn-icon {
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 0.4rem;
-    border-radius: 4px;
-    transition: all 0.2s;
-  }
-  
-  .btn-icon:hover {
-    background: var(--surface-hover);
-    color: var(--text-color);
-  }
-  
-  .btn-icon.danger:hover {
-    background: rgba(255, 50, 50, 0.1);
-    color: #ff4444;
-  }
-  
-  .skills-selector {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    background: var(--surface-1);
-    padding: 0.8rem;
-    border-radius: 6px;
-    border: 1px solid var(--border-color);
-  }
-  
-  .skill-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-  }
-  
-  .skill-name {
-    font-size: 0.9rem;
-    color: var(--text-color);
-  }
-  
-  .empty-skills {
-    font-size: 0.85rem;
-    color: var(--text-muted);
-    font-style: italic;
-  }
-
-  .agent-header-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .agent-header-row h4 {
-    margin: 0;
-    font-size: 1.1rem;
-  }
-
-  .level-badge {
-    font-size: 0.7rem;
-    padding: 0.15rem 0.5rem;
-    border-radius: 12px;
-    font-weight: 500;
-    white-space: nowrap;
-    letter-spacing: 0.02em;
-  }
-
-  .level-global {
-    background: rgba(100, 149, 237, 0.15);
-    color: #6495ed;
-    border: 1px solid rgba(100, 149, 237, 0.3);
-  }
-
-  .level-server {
-    background: rgba(160, 160, 180, 0.12);
-    color: var(--text-muted);
-    border: 1px solid rgba(160, 160, 180, 0.25);
-  }
-
-  .level-project {
-    background: rgba(80, 200, 120, 0.15);
-    color: #50c878;
-    border: 1px solid rgba(80, 200, 120, 0.3);
-  }
-</style>
+<Dialog.Root open={pendingDeleteId !== null} onOpenChange={(open) => { if (!open) pendingDeleteId = null; }}>
+  <Dialog.Content class="sm:max-w-[400px]">
+    <Dialog.Header>
+      <Dialog.Title>Confirmer la suppression</Dialog.Title>
+      <Dialog.Description>
+        Êtes-vous sûr de vouloir supprimer cet agent ? Cette action est irréversible.
+      </Dialog.Description>
+    </Dialog.Header>
+    <Dialog.Footer>
+      <Button variant="outline" onclick={() => pendingDeleteId = null}>Annuler</Button>
+      <Button variant="destructive" onclick={confirmDelete}>Supprimer</Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>

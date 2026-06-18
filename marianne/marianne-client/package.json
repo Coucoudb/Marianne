@@ -23,23 +23,31 @@
     "package:linux": "npm run build && electron-builder --linux"
   },
   "dependencies": {
+    "@tailwindcss/vite": "^4.3.1",
+    "clsx": "^2.1.1",
     "electron-store": "^8.1.0",
     "electron-updater": "^6.1.7",
     "marked": "^18.0.5",
-    "svelte-spa-router": "^4.0.1"
+    "svelte-spa-router": "^4.0.1",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.1"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^3.0.1",
+    "@internationalized/date": "^3.12.2",
+    "@lucide/svelte": "^1.21.0",
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tsconfig/svelte": "^5.0.2",
     "@types/node": "^20.10.6",
+    "bits-ui": "^2.18.1",
     "concurrently": "^8.2.2",
-    "electron": "^28.1.0",
-    "electron-builder": "^24.9.1",
-    "svelte": "^4.2.8",
-    "svelte-check": "^3.6.2",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3",
+    "svelte": "^5.56.3",
+    "svelte-check": "^4.6.0",
+    "tailwind-variants": "^3.2.2",
     "tslib": "^2.6.2",
     "typescript": "^5.3.3",
-    "vite": "^5.0.10",
+    "vite": "^8.0.16",
     "wait-on": "^7.2.0"
   },
   "build": {

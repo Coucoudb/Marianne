@@ -1,5 +1,7 @@
 <script lang="ts">
   import { afterUpdate, createEventDispatcher } from 'svelte';
+  import { fly, slide, fade } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import type { ChatMessage } from '../lib/types';
   import { parseMarkdown } from '../lib/markdown';
   import { formatSourceLabel, openUrl } from '../lib/sources';
@@ -94,7 +96,7 @@
     </div>
   {:else}
     {#each msgs as msg, idx (msg.id)}
-      <div class="message {msg.role}" class:streaming={msg.streaming} style="animation-delay: {idx > msgs.length - 3 ? '0ms' : '0ms'}">
+      <div class="message {msg.role}" class:streaming={msg.streaming} in:fly={{ y: 20, duration: 400, easing: cubicOut }}>
         {#if msg.role === 'assistant'}
           <div class="message-avatar">M</div>
         {/if}
@@ -134,9 +136,9 @@
                     <span class="deepthink-chevron" class:open={expandedThinking.has(msg.id)}>▼</span>
                   </button>
                   {#if expandedThinking.has(msg.id)}
-                    <div class="deepthink-steps">
+                    <div class="deepthink-steps" in:slide={{ duration: 300, easing: cubicOut }}>
                       {#each msg.thinkingSteps as step}
-                        <div class="deepthink-step">
+                        <div class="deepthink-step" in:fade={{ duration: 200 }}>
                           <span class="step-phase">{phaseLabel(step.phase)}</span>
                           <p class="step-content">{step.content}</p>
                         </div>
@@ -345,7 +347,6 @@
     display: flex;
     gap: var(--spacing-sm);
     margin-bottom: var(--spacing-lg);
-    animation: slideUp var(--transition-smooth) ease-out;
     max-width: 860px;
     margin-left: auto;
     margin-right: auto;
@@ -497,7 +498,7 @@
     padding: 0.125em 0.375em;
     border-radius: var(--radius-xs);
     font-size: 0.85em;
-    font-family: "SF Mono", "Fira Code", monospace;
+    font-family: var(--font-mono);
   }
 
   .markdown-body :global(pre) {

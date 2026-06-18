@@ -17,9 +17,11 @@
   let connectionStatus: 'connected' | 'disconnected' | 'testing' = 'disconnected';
   let errorMessage = '';
   let appVersion = '';
-  let showSettings = false;
-  let settingsTab: 'connection' | 'profile' | 'models' | 'agents' | 'skills' = 'connection';
+  let currentView: 'chat' | 'agents' | 'skills' | 'settings' = 'chat';
+  let settingsTab: 'connection' | 'profile' | 'models' = 'profile';
   let sidebarCollapsed = false;
+  let agentSubroute: string = $state('');
+  let skillSubroute: string = $state('');
 
   // Chat state
   let msgs: ChatMessage[] = [];
@@ -152,6 +154,9 @@
         localStorage.setItem('serverConfig', JSON.stringify(serverConfig));
       }
       await apiClient.init();
+      if (profile.updated_at !== 0) {
+        await saveProfile();
+      }
       await testConnection();
     } catch (error: any) {
       errorMessage = error.message || 'Impossible de sauvegarder la configuration';
@@ -165,6 +170,7 @@
       if (!systemInfo) await loadSystemInfo();
     }
     if (tab === 'connection') {
+      if (!profile.updated_at) await loadProfile();
       await loadSystemInfo();
     }
     if (tab === 'models') {
@@ -412,22 +418,22 @@
     sendMessage({ prompt: e.detail, deepThink: false });
   }
 
-  function openSettings(tab: 'connection' | 'profile' | 'models' | 'agents' | 'skills' = 'connection') {
+  function openSettings(tab: 'connection' | 'profile' | 'models' = 'profile') {
     settingsTab = tab;
-    showSettings = true;
+    currentView = 'settings';
     if (connectionStatus === 'connected') {
       loadTabData(tab);
     }
   }
 
-  function switchTab(tab: 'connection' | 'profile' | 'models' | 'agents' | 'skills') {
+  function switchTab(tab: 'connection' | 'profile' | 'models') {
     settingsTab = tab;
     if (connectionStatus === 'connected') {
       loadTabData(tab);
     }
   }
 
-  $: serverUrl = `${serverConfig.protocol}://${serverConfig.host}:${serverConfig.port}`;
+  let serverUrl = $derived(`${serverConfig.protocol}://${serverConfig.host}:${serverConfig.port}`);
 </script>
 
 <div class="app">
@@ -443,13 +449,7 @@
       <div class="status-indicator" class:connected={connectionStatus === 'connected'}>
         {connectionStatus === 'connected' ? 'Connecté' : 'Déconnecté'}
       </div>
-      <button class="icon-button" on:click={() => openSettings('connection')} title="Paramètres" aria-label="Paramètres">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-        </svg>
-      </button>
-      <button class="icon-button" on:click={newConversation} title="Nouvelle conversation" aria-label="Nouvelle conversation">
+      <button class="icon-button" on:click={() => { newConversation(); currentView = 'chat'; }} title="Nouvelle conversation" aria-label="Nouvelle conversation">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 20h9"/>
           <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
@@ -463,63 +463,72 @@
       {conversations}
       activeConversationId={conversationId}
       collapsed={sidebarCollapsed}
+      currentView={currentView}
       on:select={(e) => selectConversation(e.detail)}
-      on:new={newConversation}
+      on:new={() => { newConversation(); currentView = 'chat'; }}
       on:toggle={() => sidebarCollapsed = !sidebarCollapsed}
+      on:navigate={(e) => {
+        currentView = e.detail;
+        agentSubroute = '';
+        skillSubroute = '';
+        if (currentView === 'settings') {
+          openSettings(settingsTab);
+        }
+      }}
     />
 
     <main class="app-main">
-      <ChatMessages {msgs} on:suggest={handleSuggestion} />
-      <InputArea
-        on:send={(e) => sendMessage(e.detail)}
-        disabled={generating || connectionStatus !== 'connected'}
-        workspaceDir={activeWorkspaceDir}
-        {activeAgent}
-        on:workspaceDirChange={(e) => handleWorkspaceDirChange(e.detail)}
-        on:agentChange={(e) => { activeAgent = e.detail; }}
-      />
-    </main>
-  </div>
+      {#if currentView === 'chat'}
+        <ChatMessages {msgs} on:suggest={handleSuggestion} />
+        <InputArea
+          on:send={(e) => sendMessage(e.detail)}
+          disabled={generating || connectionStatus !== 'connected'}
+          workspaceDir={activeWorkspaceDir}
+          {activeAgent}
+          on:workspaceDirChange={(e) => handleWorkspaceDirChange(e.detail)}
+          on:agentChange={(e) => { activeAgent = e.detail; }}
+        />
+      {:else if currentView === 'agents'}
+        <div class="main-page-container">
+          <h2 style="margin-bottom: 1rem; font-family: var(--font-family);">Gestion des Projets / Agents{agentSubroute ? ` / ${agentSubroute}` : ''}</h2>
+          <AgentsManager
+            onsubroute={(label) => agentSubroute = label}
+            on:select={(e) => {
+            const selected = e.detail;
+            activeAgent = activeAgent?.id === selected.id ? null : { id: selected.id, name: selected.name };
+            currentView = 'chat';
+          }} />
+        </div>
+      {:else if currentView === 'skills'}
+        <div class="main-page-container">
+          <h2 style="margin-bottom: 1rem; font-family: var(--font-family);">Gestion des Artéfacts / Skills{skillSubroute ? ` / ${skillSubroute}` : ''}</h2>
+          <SkillsManager onsubroute={(label) => skillSubroute = label} />
+        </div>
+      {:else if currentView === 'settings'}
+        <div class="main-page-container">
+          <div class="settings-header" style="border: none; padding-bottom: 0;">
+            <h2 style="margin-bottom: 1rem; font-family: var(--font-family);">Personnaliser</h2>
+          </div>
+          <div class="settings-tabs">
+            <button
+              class="settings-tab"
+              class:active={settingsTab === 'profile'}
+              on:click={() => switchTab('profile')}
+            >Profil</button>
+            <button
+              class="settings-tab"
+              class:active={settingsTab === 'connection'}
+              on:click={() => switchTab('connection')}
+            >Connexion</button>
+            <button
+              class="settings-tab"
+              class:active={settingsTab === 'models'}
+              on:click={() => switchTab('models')}
+            >Modèles</button>
+          </div>
+          <div class="settings-body">
 
-  {#if showSettings}
-    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-    <div class="settings-overlay" on:click={() => showSettings = false}></div>
-    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-    <div class="settings-panel" on:click|stopPropagation>
-      <div class="settings-header">
-        <h2>Paramètres</h2>
-        <button class="settings-close" on:click={() => showSettings = false} aria-label="Fermer">✕</button>
-      </div>
 
-      <div class="settings-tabs">
-        <button
-          class="settings-tab"
-          class:active={settingsTab === 'connection'}
-          on:click={() => switchTab('connection')}
-        >Connexion</button>
-        <button
-          class="settings-tab"
-          class:active={settingsTab === 'profile'}
-          on:click={() => switchTab('profile')}
-        >Profil</button>
-        <button
-          class="settings-tab"
-          class:active={settingsTab === 'models'}
-          on:click={() => switchTab('models')}
-        >Modèles</button>
-        <button
-          class="settings-tab"
-          class:active={settingsTab === 'agents'}
-          on:click={() => switchTab('agents')}
-        >Agents</button>
-        <button
-          class="settings-tab"
-          class:active={settingsTab === 'skills'}
-          on:click={() => switchTab('skills')}
-        >Skills</button>
-      </div>
-
-      <div class="settings-body">
         {#if settingsTab === 'connection'}
           <!-- ── Connection Tab ──────────────────────────────── -->
           <div class="section-label">Configuration serveur</div>
@@ -554,6 +563,45 @@
             <button on:click={saveConfig} class="primary">
               💾 Sauvegarder
             </button>
+          </div>
+
+          <div style="margin-top: var(--spacing-xl);"></div>
+          <div class="section-label">Préférences matérielles</div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="device-pref">Dispositif</label>
+              <select id="device-pref" bind:value={profile.device_preference}>
+                <option value="Gpu">GPU</option>
+                <option value="Cpu">CPU</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="gpu-sel">Sélection GPU</label>
+              <select id="gpu-sel" 
+                value={typeof profile.gpu_selection === 'object' ? `Specific_${profile.gpu_selection.Specific}` : profile.gpu_selection} 
+                on:change={(e) => {
+                  const val = e.currentTarget.value;
+                  if (val.startsWith('Specific_')) {
+                    profile.gpu_selection = { Specific: parseInt(val.split('_')[1], 10) };
+                  } else {
+                    profile.gpu_selection = val;
+                  }
+                }}>
+                <option value="Auto">Auto (GPU principal)</option>
+                <option value="AllGpus">Tous les GPU (Multi-GPU)</option>
+                {#if systemInfo && systemInfo.gpu_devices}
+                  {#each systemInfo.gpu_devices as gpu}
+                    <option value={`Specific_${gpu.index}`}>GPU #{gpu.index} — {gpu.name} ({gpu.vram_free_mb} Mo VRAM)</option>
+                  {/each}
+                {/if}
+              </select>
+              {#if systemInfo && systemInfo.gpu_devices && systemInfo.gpu_devices.length > 0}
+                <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.25rem;">
+                  Seuls les GPU compatibles avec llama-cpp sont listés (GPU dédiés en priorité).
+                </div>
+              {/if}
+            </div>
           </div>
 
           {#if systemInfo}
@@ -644,44 +692,7 @@
               </div>
             </div>
 
-            <div style="margin-top: var(--spacing-lg);"></div>
-            <div class="section-label">Préférences matérielles</div>
 
-            <div class="form-row">
-              <div class="form-group">
-                <label for="device-pref">Dispositif</label>
-                <select id="device-pref" bind:value={profile.device_preference}>
-                  <option value="Gpu">GPU</option>
-                  <option value="Cpu">CPU</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="gpu-sel">Sélection GPU</label>
-                <select id="gpu-sel" 
-                  value={typeof profile.gpu_selection === 'object' ? `Specific_${profile.gpu_selection.Specific}` : profile.gpu_selection} 
-                  on:change={(e) => {
-                    const val = e.currentTarget.value;
-                    if (val.startsWith('Specific_')) {
-                      profile.gpu_selection = { Specific: parseInt(val.split('_')[1], 10) };
-                    } else {
-                      profile.gpu_selection = val;
-                    }
-                  }}>
-                  <option value="Auto">Auto (GPU principal)</option>
-                  <option value="AllGpus">Tous les GPU (Multi-GPU)</option>
-                  {#if systemInfo && systemInfo.gpu_devices}
-                    {#each systemInfo.gpu_devices as gpu}
-                      <option value={`Specific_${gpu.index}`}>GPU #{gpu.index} — {gpu.name} ({gpu.vram_free_mb} Mo VRAM)</option>
-                    {/each}
-                  {/if}
-                </select>
-                {#if systemInfo && systemInfo.gpu_devices && systemInfo.gpu_devices.length > 0}
-                  <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.25rem;">
-                    Seuls les GPU compatibles avec llama-cpp sont listés (GPU dédiés en priorité).
-                  </div>
-                {/if}
-              </div>
-            </div>
 
             <div class="button-group">
               <button on:click={saveProfile} class="primary">
@@ -747,16 +758,16 @@
             <div class="section-label" style="margin-top: var(--spacing-xl);">📥 Nouveau Modèle HuggingFace</div>
             <div style="background: var(--surface-2); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
               <div class="form-group" style="margin-bottom: 0.8rem;">
-                <label>Repo ID HuggingFace</label>
-                <input bind:value={downloadRepo} type="text" placeholder="ex: bartowski/Llama-3.2-1B-Instruct-GGUF" disabled={isDownloading} />
+                <label for="downloadRepo">Repo ID HuggingFace</label>
+                <input id="downloadRepo" bind:value={downloadRepo} type="text" placeholder="ex: bartowski/Llama-3.2-1B-Instruct-GGUF" disabled={isDownloading} />
               </div>
               <div class="form-group" style="margin-bottom: 0.8rem;">
-                <label>Nom exact du fichier</label>
-                <input bind:value={downloadFilename} type="text" placeholder="ex: Llama-3.2-1B-Instruct-Q4_K_M.gguf" disabled={isDownloading} />
+                <label for="downloadFilename">Nom exact du fichier</label>
+                <input id="downloadFilename" bind:value={downloadFilename} type="text" placeholder="ex: Llama-3.2-1B-Instruct-Q4_K_M.gguf" disabled={isDownloading} />
               </div>
               <div class="form-group" style="margin-bottom: 1rem;">
-                <label>Nom d'affichage</label>
-                <input bind:value={downloadName} type="text" placeholder="ex: Llama 3.2 1B (Rapide)" disabled={isDownloading} />
+                <label for="downloadName">Nom d'affichage</label>
+                <input id="downloadName" bind:value={downloadName} type="text" placeholder="ex: Llama 3.2 1B (Rapide)" disabled={isDownloading} />
               </div>
               <button 
                 class="primary" 
@@ -779,31 +790,24 @@
             </div>
           {/if}
         {/if}
-
-        {#if settingsTab === 'agents'}
-          <div class="section-label">Gestion des Agents</div>
-          <AgentsManager on:select={(e) => {
-            const selected = e.detail;
-            // Toggle : cliquer sur le même agent le désélectionne
-            activeAgent = activeAgent?.id === selected.id ? null : { id: selected.id, name: selected.name };
-            showSettings = false;
-          }} />
-        {/if}
-
-        {#if settingsTab === 'skills'}
-          <div class="section-label">Base de Connaissances</div>
-          <SkillsManager />
-        {/if}
-
-        {#if errorMessage}
-          <div class="error-message">{errorMessage}</div>
-        {/if}
-      </div>
-    </div>
-  {/if}
+          </div>
+        </div>
+      {/if}
+    </main>
+  </div>
 </div>
 
 <style>
+  .main-page-container {
+    padding: var(--spacing-2xl);
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+    overflow-y: auto;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
   .app {
     display: flex;
     flex-direction: column;

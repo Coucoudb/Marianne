@@ -1,14 +1,30 @@
 <script lang="ts">
-  import { onMount, createEventDispatcher } from 'svelte';
+  import { onMount } from 'svelte';
   import { apiClient, type Skill, type SaveLevel } from '../lib/api';
   import { slide, fade } from 'svelte/transition';
-
-  let skills: Skill[] = [];
-  let loading = true;
-  let editingSkill: Skill | null = null;
-  let saveLevel: SaveLevel = 'server';
+  import { cubicOut } from 'svelte/easing';
   
-  const dispatch = createEventDispatcher();
+  import { Button } from "$lib/components/ui/button";
+  import * as Dialog from "$lib/components/ui/dialog";
+  import { Input } from "$lib/components/ui/input";
+  import * as Select from "$lib/components/ui/select";
+  import * as Tooltip from "$lib/components/ui/tooltip";
+  import { Label } from "$lib/components/ui/label";
+
+  let { onselect, onsubroute } = $props<{
+    onselect?: (skill: Skill) => void;
+    onsubroute?: (label: string) => void;
+  }>();
+
+  let skills: Skill[] = $state([]);
+  let loading = $state(true);
+  let view: 'list' | 'form' = $state('list');
+  
+  let editingSkill: Skill | null = $state(null);
+  let saveLevel: string = $state("server");
+  let pendingDeleteId: string | null = $state(null);
+  let isCreating = $state(false);
+  let errorMsg: string | null = $state(null);
 
   onMount(async () => {
     await loadSkills();
@@ -20,318 +36,211 @@
       skills = await apiClient.listSkills();
     } catch (e) {
       console.error(e);
+      errorMsg = e instanceof Error ? e.message : 'Une erreur est survenue.';
     } finally {
       loading = false;
     }
   }
 
   function editSkill(skill: Skill) {
+    isCreating = false;
     editingSkill = { ...skill };
+    saveLevel = skill.level || "server";
+    view = 'form';
+    onsubroute?.('Éditer');
   }
 
   function createSkill() {
+    isCreating = true;
     editingSkill = {
       id: crypto.randomUUID(),
       name: 'Nouveau Skill',
       description: 'Courte description du domaine',
-      content: 'Contenu détaillé des connaissances (par ex. procédures, faits, règles)...'
+      content: 'Contenu détaillé des connaissances (par ex. procédures, faits, règles)...',
+      scope: ''
     };
+    saveLevel = "server";
+    view = 'form';
+    onsubroute?.('Nouveau');
+  }
+
+  function cancelForm() {
+    view = 'list';
+    editingSkill = null;
+    onsubroute?.('');
+  }
+  
+  function getSaveLevelLabel(val: string) {
+    if (val === 'project') return 'Projet (Dossier .marianne, pour Git)';
+    if (val === 'global') return 'Global (Préférences utilisateur)';
+    return 'Serveur (Défaut, stockage global)';
   }
 
   async function saveSkill() {
     if (!editingSkill) return;
     try {
-      await apiClient.saveSkill(editingSkill, saveLevel);
+      await apiClient.saveSkill(editingSkill, saveLevel as SaveLevel);
       await loadSkills();
+      errorMsg = null;
+      view = 'list';
       editingSkill = null;
+      onsubroute?.('');
     } catch (e) {
       console.error(e);
+      errorMsg = e instanceof Error ? e.message : 'Une erreur est survenue.';
     }
   }
 
-  async function deleteSkill(id: string) {
-    if (!confirm('Supprimer cette compétence ? Les agents qui l\'utilisent ne l\'auront plus.')) return;
+  function deleteSkill(id: string) {
+    pendingDeleteId = id;
+  }
+
+  async function confirmDelete() {
+    if (!pendingDeleteId) return;
     try {
-      await apiClient.deleteSkill(id);
+      await apiClient.deleteSkill(pendingDeleteId);
       await loadSkills();
+      errorMsg = null;
     } catch (e) {
       console.error(e);
+      errorMsg = e instanceof Error ? e.message : 'Une erreur est survenue.';
+    } finally {
+      pendingDeleteId = null;
     }
   }
 
-  function selectSkill(skill: Skill) {
-    dispatch('select', skill);
+  function doSelectSkill(skill: Skill) {
+    if (onselect) onselect(skill);
   }
 </script>
 
-<div class="skills-manager">
-  {#if editingSkill}
-    <div class="editor" in:slide>
-      <div class="header">
-        <h3>Éditer la Compétence (Skill)</h3>
-        <button class="btn-icon" on:click={() => editingSkill = null}>✕</button>
-      </div>
-      <div class="form-group">
-        <label>Nom</label>
-        <input bind:value={editingSkill.name} type="text" placeholder="Nom du skill" />
-      </div>
-      <div class="form-group">
-        <label>Description</label>
-        <input bind:value={editingSkill.description} type="text" placeholder="Courte description" />
-      </div>
-      <div class="form-group">
-        <label>Scope (Chargement Contextuel)</label>
-        <input bind:value={editingSkill.scope} type="text" placeholder="Ex: **/*.rs (laisser vide pour toujours charger)" />
-      </div>
-      <div class="form-group">
-        <label>Sauvegarder dans :</label>
-        <select bind:value={saveLevel}>
-          <option value="server">Serveur (Défaut, stockage global Marianne)</option>
-          <option value="project">Projet (Dossier .marianne du projet actuel, idéal pour Git)</option>
-          <option value="global">Global (Préférences utilisateur, ~/.marianne)</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Contenu de Connaissances</label>
-        <textarea bind:value={editingSkill.content} placeholder="Texte de connaissances que l'agent lira..." rows="10"></textarea>
-      </div>
-      <div class="actions">
-        <button class="btn primary" on:click={saveSkill}>Enregistrer</button>
-        <button class="btn" on:click={() => editingSkill = null}>Annuler</button>
-      </div>
+<div class="bg-card text-card-foreground border rounded-xl p-6 mb-6 shadow-md">
+  {#if view === 'list'}
+  {#if errorMsg}
+    <div class="mb-4 p-3 rounded-md bg-destructive/10 text-destructive text-sm flex justify-between items-center" role="alert">
+      <span>{errorMsg}</span>
+      <button class="ml-2 text-destructive/70 hover:text-destructive" aria-label="Fermer l'erreur" onclick={() => errorMsg = null}>✕</button>
+    </div>
+  {/if}
+  <div class="flex justify-between items-center mb-6" transition:fade={{ duration: 200, easing: cubicOut }}>
+    <h3 class="m-0 font-medium text-lg">Base de Connaissances (Skills)</h3>
+    <Button onclick={createSkill}>+ Nouveau Skill</Button>
+  </div>
+  
+  {#if loading}
+    <div class="py-8 text-center text-muted-foreground animate-pulse">Chargement des skills...</div>
+  {:else if skills.length === 0}
+    <div class="py-12 text-center text-muted-foreground italic flex flex-col items-center gap-2" transition:fade>
+      <span class="text-4xl opacity-30" aria-hidden="true">📚</span>
+      <span>Aucune compétence configurée.</span>
+      <span class="text-xs">Cliquez sur <strong>+ Nouveau Skill</strong> pour commencer.</span>
     </div>
   {:else}
-    <div class="list" in:fade>
-      <div class="header">
-        <h3>Base de Connaissances (Skills)</h3>
-        <button class="btn primary" on:click={createSkill}>+ Nouveau Skill</button>
-      </div>
-      
-      {#if loading}
-        <div class="loading">Chargement des skills...</div>
-      {:else if skills.length === 0}
-        <div class="empty">Aucune compétence configurée.</div>
-      {:else}
-        <div class="grid">
-          {#each skills as skill}
-            <div class="skill-card">
-              <div class="skill-info">
-                <div class="skill-header-row">
-                  <h4>{skill.name}</h4>
-                  {#if skill.level}
-                    <span class="level-badge level-{skill.level}">
-                      {skill.level === 'global' ? '🌐 Global' : skill.level === 'project' ? '📁 Projet' : '🖥️ Serveur'}
-                    </span>
-                  {/if}
-                </div>
-                <p>{skill.description}</p>
-                {#if skill.scope}
-                  <div class="scope-tag">🎯 {skill.scope}</div>
-                {/if}
-                <div class="preview">{skill.content.slice(0, 80)}...</div>
-              </div>
-              <div class="skill-actions">
-                <button class="btn-icon" on:click={() => editSkill(skill)} title="Éditer">✏️</button>
-                <button class="btn-icon danger" on:click={() => deleteSkill(skill.id)} title="Supprimer">🗑️</button>
-              </div>
+    <div class="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4" transition:fade={{ duration: 300 }}>
+      {#each skills as skill}
+        <div class="bg-muted/30 border rounded-lg p-4 flex flex-col justify-between transition-all hover:-translate-y-1 hover:shadow-lg">
+          <div class="mb-4">
+            <div class="flex items-center gap-2 mb-2">
+              <h4 class="m-0 font-semibold text-lg">{skill.name}</h4>
+              {#if skill.level}
+                <span class="text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap {skill.level === 'global' ? 'bg-blue-100 text-blue-600 border border-blue-200' : skill.level === 'project' ? 'bg-green-100 text-green-600 border border-green-200' : 'bg-gray-100 text-gray-600 border border-gray-200'}">
+                  {skill.level === 'global' ? '🌐 Global' : skill.level === 'project' ? '📁 Projet' : '🖥️ Serveur'}
+                </span>
+              {/if}
             </div>
-          {/each}
+            <p class="text-sm text-muted-foreground mb-2">{skill.description}</p>
+            {#if skill.scope}
+              <div class="text-xs text-muted-foreground mb-2">🎯 {skill.scope}</div>
+            {/if}
+            <div class="text-xs text-muted-foreground font-mono bg-background p-2 rounded border mb-2 line-clamp-3">
+              {skill.content}
+            </div>
+          </div>
+          <div class="flex gap-2 justify-end">
+            <Tooltip.Provider>
+              <Tooltip.Root>
+                <Tooltip.Trigger>
+                  <Button variant="ghost" size="icon" aria-label="Éditer la compétence" onclick={() => editSkill(skill)}>✏️</Button>
+                </Tooltip.Trigger>
+                <Tooltip.Content>Éditer</Tooltip.Content>
+              </Tooltip.Root>
+            </Tooltip.Provider>
+            
+            <Tooltip.Provider>
+              <Tooltip.Root>
+                <Tooltip.Trigger>
+                  <Button variant="ghost" size="icon" aria-label="Supprimer la compétence" class="text-destructive hover:text-destructive hover:bg-destructive/10" onclick={() => deleteSkill(skill.id)}>🗑️</Button>
+                </Tooltip.Trigger>
+                <Tooltip.Content>Supprimer</Tooltip.Content>
+              </Tooltip.Root>
+            </Tooltip.Provider>
+          </div>
         </div>
-      {/if}
+      {/each}
     </div>
+  {/if}
+  {:else}
+  <!-- Full-page form -->
+  <div class="max-w-2xl mx-auto py-4">
+    {#if errorMsg}
+      <div class="mb-4 p-3 rounded-md bg-destructive/10 text-destructive text-sm flex justify-between items-center" role="alert">
+        <span>{errorMsg}</span>
+        <button class="ml-2 text-destructive/70 hover:text-destructive" aria-label="Fermer l'erreur" onclick={() => errorMsg = null}>✕</button>
+      </div>
+    {/if}
+
+    {#if editingSkill}
+      <div class="grid gap-4" transition:slide={{ duration: 300, easing: cubicOut }}>
+        <div class="grid gap-2">
+          <Label for="skill-name">Nom</Label>
+          <Input id="skill-name" bind:value={editingSkill.name} placeholder="Nom du skill" />
+        </div>
+        <div class="grid gap-2">
+          <Label for="skill-desc">Description</Label>
+          <Input id="skill-desc" bind:value={editingSkill.description} placeholder="Courte description" />
+        </div>
+        <div class="grid gap-2">
+          <Label for="skill-scope">Scope (Chargement Contextuel)</Label>
+          <Input id="skill-scope" bind:value={editingSkill.scope} placeholder="Ex: **/*.rs (laisser vide pour toujours charger)" />
+        </div>
+        <div class="grid gap-2">
+          <Label for="save-level-skill">Sauvegarder dans :</Label>
+          <Select.Root type="single" bind:value={saveLevel}>
+            <Select.Trigger id="save-level-skill" class="w-full">
+              {getSaveLevelLabel(saveLevel)}
+            </Select.Trigger>
+            <Select.Content>
+              <Select.Item value="server">Serveur (Défaut, stockage global)</Select.Item>
+              <Select.Item value="project">Projet (Dossier .marianne, pour Git)</Select.Item>
+              <Select.Item value="global">Global (Préférences utilisateur)</Select.Item>
+            </Select.Content>
+          </Select.Root>
+        </div>
+        <div class="grid gap-2">
+          <Label for="skill-content">Contenu de Connaissances</Label>
+          <textarea id="skill-content" class="flex min-h-[150px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" bind:value={editingSkill.content} placeholder="Texte de connaissances que l'agent lira..." rows="10"></textarea>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <Button variant="outline" onclick={cancelForm}>Annuler</Button>
+          <Button onclick={saveSkill}>Enregistrer</Button>
+        </div>
+      </div>
+    {/if}
+  </div>
   {/if}
 </div>
 
-<style>
-  .skills-manager {
-    background: var(--surface-2);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin-bottom: 1.5rem;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-  }
-
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1.5rem;
-  }
-  
-  .header h3 {
-    margin: 0;
-    font-weight: 500;
-    color: var(--text-color);
-  }
-
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 1rem;
-  }
-
-  .skill-card {
-    background: var(--surface-3);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 1rem;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    transition: transform 0.2s, box-shadow 0.2s;
-  }
-  
-  .skill-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  }
-
-  .skill-info h4 {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.1rem;
-  }
-
-  .skill-info p {
-    font-size: 0.9rem;
-    color: var(--text-muted);
-    margin: 0 0 0.5rem 0;
-  }
-  
-  .preview {
-    font-size: 0.8rem;
-    color: var(--text-tertiary);
-    font-family: monospace;
-    background: var(--surface-1);
-    padding: 0.5rem;
-    border-radius: 4px;
-    margin-bottom: 1rem;
-  }
-
-  .skill-actions {
-    display: flex;
-    gap: 0.5rem;
-    justify-content: flex-end;
-  }
-
-  .form-group {
-    margin-bottom: 1rem;
-  }
-
-  .form-group label {
-    display: block;
-    margin-bottom: 0.4rem;
-    font-size: 0.9rem;
-    color: var(--text-muted);
-  }
-
-  .form-group input, .form-group textarea, .form-group select {
-    width: 100%;
-    padding: 0.7rem;
-    background: var(--surface-1);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    color: var(--text-color);
-    font-family: inherit;
-  }
-  
-  .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
-    border-color: var(--primary-color);
-    outline: none;
-  }
-
-  .actions {
-    display: flex;
-    gap: 1rem;
-    margin-top: 1.5rem;
-  }
-
-  .btn {
-    padding: 0.6rem 1.2rem;
-    border-radius: 6px;
-    border: 1px solid var(--border-color);
-    background: var(--surface-3);
-    color: var(--text-color);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  
-  .btn:hover {
-    background: var(--surface-hover);
-  }
-  
-  .btn.primary {
-    background: var(--primary-color, #4a90e2);
-    color: white;
-    border: none;
-  }
-  
-  .btn.primary:hover {
-    background: var(--primary-color-dark, #357abd);
-  }
-
-  .btn-icon {
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 0.4rem;
-    border-radius: 4px;
-    transition: all 0.2s;
-  }
-  
-  .btn-icon:hover {
-    background: var(--surface-hover);
-    color: var(--text-color);
-  }
-  
-  .btn-icon.danger:hover {
-    background: rgba(255, 50, 50, 0.1);
-    color: #ff4444;
-  }
-
-  .skill-header-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .skill-header-row h4 {
-    margin: 0;
-    font-size: 1.1rem;
-  }
-
-  .level-badge {
-    font-size: 0.7rem;
-    padding: 0.15rem 0.5rem;
-    border-radius: 12px;
-    font-weight: 500;
-    white-space: nowrap;
-    letter-spacing: 0.02em;
-  }
-
-  .level-global {
-    background: rgba(100, 149, 237, 0.15);
-    color: #6495ed;
-    border: 1px solid rgba(100, 149, 237, 0.3);
-  }
-
-  .level-server {
-    background: rgba(160, 160, 180, 0.12);
-    color: var(--text-muted);
-    border: 1px solid rgba(160, 160, 180, 0.25);
-  }
-
-  .level-project {
-    background: rgba(80, 200, 120, 0.15);
-    color: #50c878;
-    border: 1px solid rgba(80, 200, 120, 0.3);
-  }
-
-  .scope-tag {
-    font-size: 0.75rem;
-    color: var(--text-tertiary);
-    margin-bottom: 0.4rem;
-  }
-</style>
+<Dialog.Root open={pendingDeleteId !== null} onOpenChange={(open) => { if (!open) pendingDeleteId = null; }}>
+  <Dialog.Content class="sm:max-w-[400px]">
+    <Dialog.Header>
+      <Dialog.Title>Confirmer la suppression</Dialog.Title>
+      <Dialog.Description>
+        Êtes-vous sûr de vouloir supprimer cette compétence ? Les agents qui l'utilisent ne l'auront plus.
+      </Dialog.Description>
+    </Dialog.Header>
+    <Dialog.Footer>
+      <Button variant="outline" onclick={() => pendingDeleteId = null}>Annuler</Button>
+      <Button variant="destructive" onclick={confirmDelete}>Supprimer</Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
