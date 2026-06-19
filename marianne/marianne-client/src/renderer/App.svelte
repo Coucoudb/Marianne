@@ -11,7 +11,8 @@
   let serverConfig = $state({
     host: 'localhost',
     port: 3000,
-    protocol: 'http' as 'http' | 'https'
+    protocol: 'http' as 'http' | 'https',
+    apiToken: ''
   });
 
   let connectionStatus: 'connected' | 'disconnected' | 'testing' = $state('disconnected');
@@ -549,6 +550,11 @@
               <label for="port">Port</label>
               <input id="port" type="number" bind:value={serverConfig.port} placeholder="3000" />
             </div>
+          </div>
+
+          <div class="form-group">
+            <label for="api-token">Token API</label>
+            <input id="api-token" type="password" bind:value={serverConfig.apiToken} placeholder="Votre token secret..." />
           </div>
 
           <div class="server-url">

@@ -6,6 +6,7 @@ interface ServerConfig {
   host: string;
   port: number;
   protocol: 'http' | 'https';
+  apiToken?: string;
 }
 
 const store = new Store<{ serverConfig: ServerConfig }>({
@@ -13,7 +14,8 @@ const store = new Store<{ serverConfig: ServerConfig }>({
     serverConfig: {
       host: 'localhost',
       port: 3000,
-      protocol: 'http'
+      protocol: 'http',
+      apiToken: ''
     }
   }
 });
@@ -36,9 +38,14 @@ export function registerServerHandlers(): void {
     const url = `${serverConfig.protocol}://${serverConfig.host}:${serverConfig.port}/health`;
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (serverConfig.apiToken) {
+        headers['Authorization'] = `Bearer ${serverConfig.apiToken}`;
+      }
+
       const response = await fetch(url, {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
+        headers
       });
 
       return {

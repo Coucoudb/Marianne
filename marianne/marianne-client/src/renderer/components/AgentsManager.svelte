@@ -23,10 +23,20 @@
   let view: 'list' | 'form' = $state('list');
   
   let editingAgent: Agent | null = $state(null);
-  let saveLevel: string = $state("server");
   let pendingDeleteId: string | null = $state(null);
   let isCreating = $state(false);
   let errorMsg: string | null = $state(null);
+  let saveLevel = $state<SaveLevel>('server');
+  let toolsDropdownOpen = $state(false);
+
+  const AVAILABLE_TOOLS = [
+    { id: 'read_file', name: 'read_file', desc: 'Lire le contenu d\'un fichier' },
+    { id: 'write_file', name: 'write_file', desc: 'Créer ou écrire dans un fichier' },
+    { id: 'list_dir', name: 'list_dir', desc: 'Lister le contenu d\'un répertoire' },
+    { id: 'run_command', name: 'run_command', desc: 'Exécuter une commande système' },
+    { id: 'replace_file_content', name: 'replace_file_content', desc: 'Remplacer du texte dans un fichier' },
+    { id: 'grep_search', name: 'grep_search', desc: 'Rechercher un motif dans des fichiers' },
+  ];
 
   onMount(async () => {
     await loadAgents();
@@ -140,9 +150,12 @@
       <button class="ml-2 text-destructive/70 hover:text-destructive" aria-label="Fermer l'erreur" onclick={() => errorMsg = null}>✕</button>
     </div>
   {/if}
-  <div class="flex justify-between items-center mb-6" transition:fade={{ duration: 200, easing: cubicOut }}>
-    <h3 class="m-0 font-medium text-lg">Agents Spécialisés</h3>
-    <Button onclick={createAgent}>+ Nouvel Agent</Button>
+  <div class="flex justify-between items-center mb-8 pb-4 border-b border-gray-100" transition:fade={{ duration: 200, easing: cubicOut }}>
+    <div>
+      <h3 class="m-0 font-bold text-2xl text-gray-900">Agents Spécialisés</h3>
+      <p class="text-sm text-gray-500 mt-1">Gérez vos agents d'intelligence artificielle personnalisés</p>
+    </div>
+    <Button onclick={createAgent} class="text-white hover:opacity-90 shadow-md transition-all hover:scale-[1.02] font-medium" style="background-color: var(--color-bleu-france)">+ Nouvel Agent</Button>
   </div>
   
   {#if loading}
@@ -207,83 +220,135 @@
   {/if}
   {:else}
   <!-- Full-page form -->
-  <div class="max-w-2xl mx-auto py-4">
+  <div class="max-w-3xl mx-auto p-8 mt-4 bg-white/80 backdrop-blur-xl border border-gray-100 rounded-2xl shadow-xl transition-all">
     {#if errorMsg}
-      <div class="mb-4 p-3 rounded-md bg-destructive/10 text-destructive text-sm flex justify-between items-center" role="alert">
-        <span>{errorMsg}</span>
-        <button class="ml-2 text-destructive/70 hover:text-destructive" aria-label="Fermer l'erreur" onclick={() => errorMsg = null}>✕</button>
+      <div class="mb-6 p-4 rounded-xl bg-red-50 text-red-700 border border-red-200 text-sm flex justify-between items-center shadow-sm" role="alert">
+        <span class="font-medium">{errorMsg}</span>
+        <button class="ml-2 text-red-400 hover:text-red-700 hover:bg-red-100 p-1 rounded-md transition-colors" aria-label="Fermer l'erreur" onclick={() => errorMsg = null}>✕</button>
       </div>
     {/if}
 
+    <div class="mb-8">
+      <h2 class="text-2xl font-bold text-gray-900 mb-2">{isCreating ? 'Créer un Nouvel Agent' : 'Éditer l\'Agent'}</h2>
+      <p class="text-sm text-gray-500">Configurez les paramètres, les compétences et les accès de votre agent.</p>
+    </div>
+
     {#if editingAgent}
-      <div class="grid gap-4" transition:slide={{ duration: 300, easing: cubicOut }}>
-        <!-- Nom -->
-        <div class="grid gap-2">
-          <Label for="agent-name">Nom</Label>
-          <Input id="agent-name" bind:value={editingAgent.name} placeholder="Nom de l'agent" />
+      <div class="grid gap-6" transition:slide={{ duration: 300, easing: cubicOut }}>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- Nom -->
+          <div class="grid gap-2">
+            <Label for="agent-name" class="font-semibold text-gray-700">Nom de l'agent</Label>
+            <Input id="agent-name" class="rounded-lg px-4 bg-gray-50/50 focus:bg-white transition-colors" bind:value={editingAgent.name} placeholder="Nom de l'agent" />
+          </div>
+          <!-- Sauvegarder dans -->
+          <div class="grid gap-2">
+            <Label for="save-level-agent" class="font-semibold text-gray-700">Emplacement de sauvegarde</Label>
+            <Select.Root type="single" bind:value={saveLevel}>
+              <Select.Trigger id="save-level-agent" class="w-full rounded-lg px-4 bg-gray-50/50 focus:bg-white transition-colors">
+                <span class="truncate">{getSaveLevelLabel(saveLevel)}</span>
+              </Select.Trigger>
+              <Select.Content class="rounded-lg">
+                <Select.Item value="server" class="pl-6">Serveur (Défaut, stockage global)</Select.Item>
+                <Select.Item value="project" class="pl-6">Projet (Dossier .marianne)</Select.Item>
+                <Select.Item value="global" class="pl-6">Global (Préférences)</Select.Item>
+              </Select.Content>
+            </Select.Root>
+          </div>
         </div>
+
         <!-- Description -->
         <div class="grid gap-2">
-          <Label for="agent-desc">Description</Label>
-          <Input id="agent-desc" bind:value={editingAgent.description} placeholder="Courte description" />
+          <Label for="agent-desc" class="font-semibold text-gray-700">Description courte</Label>
+          <Input id="agent-desc" class="rounded-lg px-4 bg-gray-50/50 focus:bg-white transition-colors" bind:value={editingAgent.description} placeholder="Ex: Spécialiste en analyse de données..." />
         </div>
-        <!-- Sauvegarder dans -->
-        <div class="grid gap-2">
-          <Label for="save-level-agent">Sauvegarder dans :</Label>
-          <Select.Root type="single" bind:value={saveLevel}>
-            <Select.Trigger id="save-level-agent" class="w-full">
-              {getSaveLevelLabel(saveLevel)}
-            </Select.Trigger>
-            <Select.Content>
-              <Select.Item value="server">Serveur (Défaut, stockage global)</Select.Item>
-              <Select.Item value="project">Projet (Dossier .marianne, pour Git)</Select.Item>
-              <Select.Item value="global">Global (Préférences utilisateur)</Select.Item>
-            </Select.Content>
-          </Select.Root>
-        </div>
+
         <!-- Prompt Système -->
         <div class="grid gap-2">
-          <Label for="agent-prompt">Prompt Système</Label>
-          <textarea id="agent-prompt" class="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" bind:value={editingAgent.system_prompt} placeholder="Instructions de l'agent..." rows="5"></textarea>
+          <Label for="agent-prompt" class="font-semibold text-gray-700">Prompt Système (Instructions)</Label>
+          <textarea id="agent-prompt" class="flex min-h-[140px] w-full rounded-lg border border-input bg-gray-50/50 hover:bg-gray-50 focus:bg-white px-5 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#000091]/30 resize-y" bind:value={editingAgent.system_prompt} placeholder="Tu es un expert en..." rows="5"></textarea>
         </div>
-        <!-- Dossier de travail -->
-        <div class="grid gap-2">
-          <Label for="agent-workdir">Dossier de travail autorisé</Label>
-          <Input id="agent-workdir" bind:value={editingAgent.working_directory} placeholder="Ex: C:\ (C:\ pour accès total)" />
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- Dossier de travail -->
+          <div class="grid gap-2">
+            <Label for="agent-workdir" class="font-semibold text-gray-700">Dossier de travail autorisé</Label>
+            <Input id="agent-workdir" class="rounded-lg px-4 bg-gray-50/50 focus:bg-white font-mono text-sm" bind:value={editingAgent.working_directory} placeholder="Ex: C:\ (C:\ pour accès total)" />
+          </div>
+          <!-- Outils -->
+          <div class="grid gap-2 relative">
+            <Label for="agent-tools" class="font-semibold text-gray-700">Outils activés</Label>
+            
+            <button 
+              type="button" 
+              class="flex w-full items-center justify-between rounded-lg border border-input bg-gray-50/50 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#000091]/30 transition-colors hover:bg-white" 
+              onclick={() => toolsDropdownOpen = !toolsDropdownOpen}
+            >
+              <span class="truncate font-mono text-gray-700">
+                {editingAgent.tools.length > 0 ? editingAgent.tools.join(', ') : 'Aucun outil sélectionné'}
+              </span>
+              <span class="text-gray-500 text-xs ml-2">▼</span>
+            </button>
+
+            {#if toolsDropdownOpen}
+              <!-- Click away overlay -->
+              <div class="fixed inset-0 z-10" role="presentation" onclick={() => toolsDropdownOpen = false}></div>
+              
+              <!-- Dropdown content -->
+              <div class="absolute top-[100%] left-0 mt-1 z-20 w-full rounded-lg border border-gray-200 bg-white p-2 shadow-xl shadow-gray-200/50">
+                <div class="max-h-60 overflow-y-auto pr-1">
+                  {#each AVAILABLE_TOOLS as tool}
+                    <label class="flex items-center space-x-3 rounded-md px-3 py-2.5 hover:bg-gray-50 cursor-pointer transition-colors border border-transparent hover:border-gray-100 mb-1">
+                      <input 
+                        type="checkbox" 
+                        checked={editingAgent.tools.includes(tool.id)} 
+                        onchange={(e) => {
+                          if (e.currentTarget.checked) {
+                            editingAgent.tools = [...editingAgent.tools, tool.id];
+                          } else {
+                            editingAgent.tools = editingAgent.tools.filter(t => t !== tool.id);
+                          }
+                        }} 
+                        class="h-4 w-4 rounded border-gray-300 text-[#000091] focus:ring-[#000091]" 
+                      />
+                      <div class="flex flex-col">
+                        <span class="text-sm font-medium text-gray-900 font-mono">{tool.name}</span>
+                        <span class="text-xs text-gray-500">{tool.desc}</span>
+                      </div>
+                    </label>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+          </div>
         </div>
+
         <!-- Skills -->
-        <div class="grid gap-2">
-          <Label>Compétences (Skills)</Label>
-          <div class="flex flex-col gap-3 bg-muted/50 p-4 rounded-md border">
+        <div class="grid gap-3">
+          <Label class="font-semibold text-gray-700">Compétences (Skills)</Label>
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 bg-gray-50/80 p-5 rounded-xl border border-gray-100 shadow-inner">
             {#if availableSkills.length === 0}
-              <div class="text-sm text-muted-foreground italic">Aucun skill disponible. Créez-en d'abord dans l'onglet Skills.</div>
+              <div class="text-sm text-gray-500 italic col-span-full py-4 text-center">Aucune compétence disponible. Créez-en d'abord dans l'onglet Skills.</div>
             {/if}
             {#each availableSkills as skill}
-              <div class="flex items-center space-x-2">
+              <div class="flex items-center space-x-3 p-2 hover:bg-white rounded-lg transition-colors border border-transparent hover:border-gray-200 hover:shadow-sm">
                 <Switch
                   id="skill-{skill.id}"
                   checked={editingAgent.skills.includes(skill.id)}
                   onCheckedChange={(v) => toggleSkill(skill.id, v)}
+                  class="data-[state=checked]:bg-[#000091]"
                 />
-                <Label for="skill-{skill.id}" class="font-normal cursor-pointer">{skill.name}</Label>
+                <Label for="skill-{skill.id}" class="font-medium cursor-pointer text-sm truncate">{skill.name}</Label>
               </div>
             {/each}
           </div>
         </div>
-        <!-- Outils -->
-        <div class="grid gap-2">
-          <Label for="agent-tools">Outils Actifs (séparés par virgule)</Label>
-          <Input
-            id="agent-tools"
-            value={editingAgent.tools.join(', ')}
-            oninput={(e) => editingAgent.tools = e.currentTarget.value.split(',').map(s=>s.trim()).filter(Boolean)}
-            placeholder="read_file, write_file, replace_file_content..."
-          />
-        </div>
+
         <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onclick={cancelForm}>Annuler</Button>
-          <Button onclick={saveAgent}>Enregistrer</Button>
+        <div class="flex justify-end gap-3 pt-6 mt-2 border-t border-gray-100">
+          <Button variant="outline" class="hover:bg-gray-100" onclick={cancelForm}>Annuler</Button>
+          <Button class="text-white hover:opacity-90 shadow-md hover:shadow-lg transition-all" style="background-color: var(--color-bleu-france)" onclick={saveAgent}>Enregistrer l'agent</Button>
         </div>
       </div>
     {/if}

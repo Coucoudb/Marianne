@@ -99,15 +99,7 @@ pub async fn download_default_model(data_dir: &Path) -> Result<()> {
         &download_url, 
         DEFAULT_MODEL_FILE, 
         &models_dir,
-        |progress| {
-            tracing::info!(
-                "📥 {} : {} / {} Mo ({}%)",
-                progress.filename,
-                progress.downloaded_mb,
-                progress.total_mb,
-                progress.percent
-            );
-        }
+        |_progress| {}
     ).await?;
 
     // Enregistrer dans le registre local
@@ -311,10 +303,21 @@ where
     let mut downloaded = already_downloaded;
     let mut stream = response.bytes_stream();
 
+    let pb = indicatif::ProgressBar::new(total_size);
+    pb.set_style(
+        indicatif::ProgressStyle::default_bar()
+            .template("{msg} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} {bytes_per_sec} ({eta})")
+            .unwrap()
+            .progress_chars("#>-")
+    );
+    pb.set_message(filename.to_string());
+    pb.set_position(downloaded);
+
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.context("Erreur lors du téléchargement d'un chunk")?;
         file.write_all(&chunk).context("Impossible d'écrire dans le fichier")?;
         downloaded += chunk.len() as u64;
+        pb.set_position(downloaded);
 
         let percent = downloaded
             .checked_mul(100)
@@ -327,6 +330,8 @@ where
             percent,
         });
     }
+
+    pb.finish_and_clear();
 
     std::fs::rename(&partial_path, &file_path).context("Impossible de renommer le fichier final")?;
     tracing::info!("✅ {} téléchargé et validé", filename);

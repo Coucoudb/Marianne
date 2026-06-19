@@ -29,11 +29,10 @@ struct Cli {
     #[arg(long)]
     tls_key: Option<std::path::PathBuf>,
 
-    /// Clé admin initiale à insérer si la table api_keys est vide.
-    /// Format recommandé : "mk_<uuid>". Affichée en log une seule fois au démarrage.
-    /// Peut aussi être définie via MARIANNE_BOOTSTRAP_ADMIN_KEY.
-    #[arg(long, env = "MARIANNE_BOOTSTRAP_ADMIN_KEY")]
-    bootstrap_admin_key: Option<String>,
+    /// Si actif, génère et affiche automatiquement une clé admin sécurisée au premier lancement
+    /// si la base de données ne contient aucune clé.
+    #[arg(long)]
+    api_key: bool,
 }
 
 #[tokio::main]
@@ -75,15 +74,17 @@ async fn main() -> Result<()> {
     // Initialiser la base de données des clés API
     core_state.api_keys.initialize().await?;
 
-    // Bootstrap : insérer la première clé admin si la table est vide
-    if let Some(bootstrap_key) = cli.bootstrap_admin_key {
+    // Bootstrap : générer la première clé admin si demandée et table vide
+    if cli.api_key {
         let all = core_state.api_keys.list_all().await?;
         if all.is_empty() {
+            let bootstrap_key = format!("mk_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
             core_state
                 .api_keys
                 .insert(&bootstrap_key, "admin", "bootstrap", marianne_core::auth::api_keys::Role::Admin)
                 .await?;
-            tracing::info!("✅ Clé admin initiale insérée (user_id=admin, role=admin)");
+            tracing::info!("✅ Nouvelle clé admin générée : {}", bootstrap_key);
+            tracing::info!("⚠️ IMPORTANT : Conservez cette clé, elle ne sera plus affichée aux prochains lancements !");
         } else {
             tracing::debug!("Bootstrap ignoré : des clés existent déjà");
         }

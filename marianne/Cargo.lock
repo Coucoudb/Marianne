@@ -4610,7 +4610,7 @@ checksum = "670fdfda89751bc4a84ac13eaa63e205cf0fd22b4c9a5fbfa085b63c1f1d3a30"
 
 [[package]]
 name = "marianne-core"
-version = "0.0.2"
+version = "0.0.5"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -4627,6 +4627,7 @@ dependencies = [
  "futures-util",
  "gethostname",
  "glob",
+ "indicatif",
  "lancedb",
  "llama-cpp-2",
  "num_cpus",
@@ -4653,7 +4654,7 @@ dependencies = [
 
 [[package]]
 name = "marianne-server"
-version = "0.0.1"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "axum",

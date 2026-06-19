@@ -122,9 +122,12 @@
       <button class="ml-2 text-destructive/70 hover:text-destructive" aria-label="Fermer l'erreur" onclick={() => errorMsg = null}>✕</button>
     </div>
   {/if}
-  <div class="flex justify-between items-center mb-6" transition:fade={{ duration: 200, easing: cubicOut }}>
-    <h3 class="m-0 font-medium text-lg">Base de Connaissances (Skills)</h3>
-    <Button onclick={createSkill}>+ Nouveau Skill</Button>
+  <div class="flex justify-between items-center mb-8 pb-4 border-b border-gray-100" transition:fade={{ duration: 200, easing: cubicOut }}>
+    <div>
+      <h3 class="m-0 font-bold text-2xl text-gray-900">Base de Connaissances (Skills)</h3>
+      <p class="text-sm text-gray-500 mt-1">Gérez les connaissances documentaires et contextuelles</p>
+    </div>
+    <Button onclick={createSkill} class="text-white hover:opacity-90 shadow-md transition-all hover:scale-[1.02] font-medium" style="background-color: var(--color-bleu-france)">+ Nouveau Skill</Button>
   </div>
   
   {#if loading}
@@ -181,48 +184,59 @@
   {/if}
   {:else}
   <!-- Full-page form -->
-  <div class="max-w-2xl mx-auto py-4">
+  <div class="max-w-3xl mx-auto p-8 mt-4 bg-white/80 backdrop-blur-xl border border-gray-100 rounded-2xl shadow-xl transition-all">
     {#if errorMsg}
-      <div class="mb-4 p-3 rounded-md bg-destructive/10 text-destructive text-sm flex justify-between items-center" role="alert">
-        <span>{errorMsg}</span>
-        <button class="ml-2 text-destructive/70 hover:text-destructive" aria-label="Fermer l'erreur" onclick={() => errorMsg = null}>✕</button>
+      <div class="mb-6 p-4 rounded-xl bg-red-50 text-red-700 border border-red-200 text-sm flex justify-between items-center shadow-sm" role="alert">
+        <span class="font-medium">{errorMsg}</span>
+        <button class="ml-2 text-red-400 hover:text-red-700 hover:bg-red-100 p-1 rounded-md transition-colors" aria-label="Fermer l'erreur" onclick={() => errorMsg = null}>✕</button>
       </div>
     {/if}
 
+    <div class="mb-8">
+      <h2 class="text-2xl font-bold text-gray-900 mb-2">{isCreating ? 'Créer un Nouveau Skill' : 'Éditer le Skill'}</h2>
+      <p class="text-sm text-gray-500">Ajoutez des connaissances spécifiques et définissez leur portée d'activation.</p>
+    </div>
+
     {#if editingSkill}
-      <div class="grid gap-4" transition:slide={{ duration: 300, easing: cubicOut }}>
-        <div class="grid gap-2">
-          <Label for="skill-name">Nom</Label>
-          <Input id="skill-name" bind:value={editingSkill.name} placeholder="Nom du skill" />
+      <div class="grid gap-6" transition:slide={{ duration: 300, easing: cubicOut }}>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="grid gap-2">
+            <Label for="skill-name" class="font-semibold text-gray-700">Nom du skill</Label>
+            <Input id="skill-name" class="rounded-lg px-4 bg-gray-50/50 focus:bg-white transition-colors" bind:value={editingSkill.name} placeholder="Nom du skill" />
+          </div>
+          <div class="grid gap-2">
+            <Label for="save-level-skill" class="font-semibold text-gray-700">Emplacement de sauvegarde</Label>
+            <Select.Root type="single" bind:value={saveLevel}>
+              <Select.Trigger id="save-level-skill" class="w-full rounded-lg px-4 bg-gray-50/50 focus:bg-white transition-colors">
+                <span class="truncate">{getSaveLevelLabel(saveLevel)}</span>
+              </Select.Trigger>
+              <Select.Content class="rounded-lg">
+                <Select.Item value="server" class="pl-6">Serveur (Défaut, global)</Select.Item>
+                <Select.Item value="project" class="pl-6">Projet (Dossier .marianne)</Select.Item>
+                <Select.Item value="global" class="pl-6">Global (Préférences)</Select.Item>
+              </Select.Content>
+            </Select.Root>
+          </div>
         </div>
+
         <div class="grid gap-2">
-          <Label for="skill-desc">Description</Label>
-          <Input id="skill-desc" bind:value={editingSkill.description} placeholder="Courte description" />
+          <Label for="skill-desc" class="font-semibold text-gray-700">Description courte</Label>
+          <Input id="skill-desc" class="rounded-lg px-4 bg-gray-50/50 focus:bg-white transition-colors" bind:value={editingSkill.description} placeholder="Courte description" />
         </div>
+
         <div class="grid gap-2">
-          <Label for="skill-scope">Scope (Chargement Contextuel)</Label>
-          <Input id="skill-scope" bind:value={editingSkill.scope} placeholder="Ex: **/*.rs (laisser vide pour toujours charger)" />
+          <Label for="skill-scope" class="font-semibold text-gray-700">Scope (Condition d'activation)</Label>
+          <Input id="skill-scope" class="rounded-lg px-4 bg-gray-50/50 focus:bg-white font-mono text-sm transition-colors" bind:value={editingSkill.scope} placeholder="Ex: **/*.rs (laisser vide pour toujours charger)" />
         </div>
+
         <div class="grid gap-2">
-          <Label for="save-level-skill">Sauvegarder dans :</Label>
-          <Select.Root type="single" bind:value={saveLevel}>
-            <Select.Trigger id="save-level-skill" class="w-full">
-              {getSaveLevelLabel(saveLevel)}
-            </Select.Trigger>
-            <Select.Content>
-              <Select.Item value="server">Serveur (Défaut, stockage global)</Select.Item>
-              <Select.Item value="project">Projet (Dossier .marianne, pour Git)</Select.Item>
-              <Select.Item value="global">Global (Préférences utilisateur)</Select.Item>
-            </Select.Content>
-          </Select.Root>
+          <Label for="skill-content" class="font-semibold text-gray-700">Contenu des Connaissances</Label>
+          <textarea id="skill-content" class="flex min-h-[220px] w-full rounded-lg border border-input bg-gray-50/50 hover:bg-gray-50 focus:bg-white px-5 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#000091]/30 resize-y" bind:value={editingSkill.content} placeholder="Texte de connaissances que l'agent lira..." rows="10"></textarea>
         </div>
-        <div class="grid gap-2">
-          <Label for="skill-content">Contenu de Connaissances</Label>
-          <textarea id="skill-content" class="flex min-h-[150px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" bind:value={editingSkill.content} placeholder="Texte de connaissances que l'agent lira..." rows="10"></textarea>
-        </div>
-        <div class="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onclick={cancelForm}>Annuler</Button>
-          <Button onclick={saveSkill}>Enregistrer</Button>
+
+        <div class="flex justify-end gap-3 pt-6 mt-2 border-t border-gray-100">
+          <Button variant="outline" class="hover:bg-gray-100" onclick={cancelForm}>Annuler</Button>
+          <Button class="text-white hover:opacity-90 shadow-md hover:shadow-lg transition-all" style="background-color: var(--color-bleu-france)" onclick={saveSkill}>Enregistrer le skill</Button>
         </div>
       </div>
     {/if}

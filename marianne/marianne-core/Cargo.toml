@@ -1,6 +1,6 @@
 [package]
 name = "marianne-core"
-version = "0.0.2"
+version = "0.0.5"
 edition = "2021"
 rust-version = "1.75"
 description = "Marianne — Core logic (LLM, RAG, history, profile, corpus)"
@@ -70,6 +70,9 @@ dashmap = "6"
 
 # Analyse de documents
 pdf-extract = "0.7"
+
+# Progress bar
+indicatif = "0.17"
 
 [features]
 default = ["fastembed", "vectordb"]

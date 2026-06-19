@@ -30,6 +30,25 @@ pub async fn auth_middleware(
     mut request: Request,
     next: Next,
 ) -> Response {
+    // 1. Si aucune clé n'existe dans la base, on autorise tout le monde en tant qu'admin
+    // (Mode mono-utilisateur non protégé)
+    match state.core.api_keys.list_all().await {
+        Ok(keys) if keys.is_empty() => {
+            request.extensions_mut().insert(UserId("mono_user".to_string()));
+            request.extensions_mut().insert(UserRole(Role::Admin));
+            return next.run(request).await;
+        }
+        Err(e) => {
+            tracing::error!("auth DB list_all error: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal error"})),
+            )
+                .into_response();
+        }
+        _ => {} // Des clés existent, on passe à la vérification classique
+    }
+
     let auth_header = request
         .headers()
         .get(axum::http::header::AUTHORIZATION)

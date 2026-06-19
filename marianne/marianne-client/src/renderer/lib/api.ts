@@ -42,9 +42,12 @@ export async function getServerUrl(): Promise<string> {
 /** API client for marianne-server HTTP endpoints */
 export class ApiClient {
   private baseUrl: string = '';
+  private apiToken?: string;
 
   async init() {
-    this.baseUrl = await getServerUrl();
+    const config: ServerConfig = await window.electronAPI.server.getConfig();
+    this.baseUrl = `${config.protocol}://${config.host}:${config.port}`;
+    this.apiToken = config.apiToken;
   }
 
   private async fetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
@@ -53,12 +56,18 @@ export class ApiClient {
     }
 
     const url = `${this.baseUrl}${endpoint}`;
+    
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...options.headers
+    };
+    if (this.apiToken) {
+      headers['Authorization'] = `Bearer ${this.apiToken}`;
+    }
+
     const response = await fetch(url, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-      }
+      headers
     });
 
     if (!response.ok) {
