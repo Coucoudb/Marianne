@@ -23,6 +23,10 @@ pub struct ChatRequest {
     pub max_tokens: Option<usize>,
     pub agent_id: Option<String>,
     pub deep_think: Option<bool>,
+    /// Identifiant utilisateur injecté par le middleware d'auth.
+    /// Vaut None quand l'auth est désactivée (utilisé par Tauri).
+    #[serde(default)]
+    pub user_id: Option<String>,
 }
 
 /// Tous les événements émis pendant le pipeline de chat.
@@ -91,6 +95,7 @@ pub async fn process_chat(
         .conversation_id
         .clone()
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let user_id = request.user_id.clone().unwrap_or_else(|| "default".to_string());
     let max_tokens = request.max_tokens.unwrap_or(2048);
 
     if !state.is_model_loaded() {
@@ -152,7 +157,7 @@ pub async fn process_chat(
     let (rag_results, history) = if is_conv {
         let hist = state
             .history
-            .get_conversation(&conv_id)
+            .get_conversation(&conv_id, &user_id)
             .await
             .unwrap_or_default();
         (Vec::new(), hist)
@@ -173,7 +178,7 @@ pub async fn process_chat(
             },
             async {
                 history_db
-                    .get_conversation(&conv_id_hist)
+                    .get_conversation(&conv_id_hist, &user_id)
                     .await
                     .unwrap_or_default()
             }
@@ -268,17 +273,47 @@ pub async fn process_chat(
 
             let cache = WebCache::new(&state.data_dir.join("web_cache"));
 
-            let web_results = if let Some(cached) = cache.get(&request.message, category) {
+            // Optimisation de la requête via LLM
+            let llm_state = state.llm.clone();
+            let msg_clone = request.message.clone();
+            let search_query = tokio::task::spawn_blocking(move || {
+                let mut guard = llm_state.lock();
+                if let Some(engine) = guard.as_mut() {
+                    let prompt = format!("<|system|>\nTu es un assistant qui extrait les mots-clés optimaux pour une recherche web. Ne réponds QUE la requête sous forme de mots-clés (maximum 6 mots). Ne fais pas de phrase.<|end|>\n<|user|>\n{}<|end|>\n<|assistant|>\n", msg_clone);
+                    let mut final_query = msg_clone.clone();
+                    for attempt in 1..=3 {
+                        match engine.generate_blocking(&prompt, 20) {
+                            Ok(res) => {
+                                let cleaned = res.replace("\"", "").replace("Requête", "").replace(":", "").trim().to_string();
+                                if !cleaned.is_empty() && cleaned.len() <= 100 {
+                                    final_query = cleaned;
+                                    break;
+                                } else {
+                                    tracing::warn!("Tentative {} : Requête générée rejetée (longueur: {})", attempt, cleaned.len());
+                                }
+                            },
+                            Err(_) => break,
+                        }
+                    }
+                    final_query
+                } else {
+                    msg_clone
+                }
+            }).await.unwrap_or_else(|_| request.message.clone());
+
+            tracing::info!("Requête de recherche optimisée : '{}'", search_query);
+
+            let web_results = if let Some(cached) = cache.get(&search_query, category) {
                 tracing::info!(
                     "Cache web hit pour '{}'",
-                    &request.message[..30.min(request.message.len())]
+                    &search_query[..30.min(search_query.len())]
                 );
                 cached
             } else {
                 match WebSearcher::new() {
-                    Ok(searcher) => match searcher.search(&request.message, category, 5).await {
+                    Ok(searcher) => match searcher.search(&search_query, category, 5).await {
                         Ok(results) => {
-                            cache.set(&request.message, category, &results).ok();
+                            cache.set(&search_query, category, &results).ok();
                             results
                         }
                         Err(e) => {
@@ -295,7 +330,7 @@ pub async fn process_chat(
 
             let relevant_web: Vec<WebResult> = web_results
                 .into_iter()
-                .filter(|r| is_web_result_relevant(r, &request.message))
+                .filter(|r| is_web_result_relevant(r, &search_query))
                 .collect();
 
             let web_ctx = format_web_context(&relevant_web);
@@ -639,6 +674,7 @@ pub async fn process_chat(
                                         max_tokens: Some(2000),
                                         agent_id: Some(tgt.id),
                                         deep_think: None,
+                                        user_id: request.user_id.clone(),
                                     };
                                     let (sub_tx, mut sub_rx) = tokio::sync::mpsc::channel(100);
                                     let state_clone = state.clone();
@@ -712,7 +748,7 @@ pub async fn process_chat(
     // 5. Sauvegarder dans l'historique
     state
         .history
-        .save_turn(&conv_id, &request.message, &cleaned_response)
+        .save_turn(&conv_id, &user_id, &request.message, &cleaned_response)
         .await
         .ok();
 

@@ -54,6 +54,15 @@ Téléchargez la [dernière release](https://github.com/Coucoudb/Marianne/releas
 
 Le serveur fait tourner l'IA localement. Choisissez l'archive adaptée à votre matériel :
 
+> 🔑 **Premier démarrage** : définissez une clé admin pour sécuriser l'API :
+> ```bash
+> # Linux / macOS
+> export MARIANNE_BOOTSTRAP_ADMIN_KEY=mk_$(cat /proc/sys/kernel/random/uuid | tr -d '-')
+> # Windows (PowerShell)
+> $env:MARIANNE_BOOTSTRAP_ADMIN_KEY = "mk_" + [guid]::NewGuid().ToString('N')
+> ```
+> La clé est insérée une seule fois au démarrage si aucune clé n'existe. Conservez-la pour configurer le client.
+
 | Votre GPU | Windows | Linux | macOS |
 |-----------|---------|-------|-------|
 | **NVIDIA RTX/GTX** | `marianne-server-windows-x64-cuda.zip` | `marianne-server-linux-x64-cuda.tar.gz` | — |

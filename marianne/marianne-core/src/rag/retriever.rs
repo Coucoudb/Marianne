@@ -154,7 +154,7 @@ impl Retriever {
         // Scores sémantiques
         for (rank, result) in semantic.iter().enumerate() {
             let rrf_score = 1.0 / (RRF_K + rank as f32 + 1.0);
-            let key = result.text[..result.text.len().min(100)].to_string();
+            let key = result.text.chars().take(100).collect::<String>();
             scores
                 .entry(key)
                 .and_modify(|(s, _)| *s += rrf_score)
@@ -164,7 +164,7 @@ impl Retriever {
         // Scores FTS
         for (rank, result) in fts.iter().enumerate() {
             let rrf_score = 1.0 / (RRF_K + rank as f32 + 1.0);
-            let key = result.text[..result.text.len().min(100)].to_string();
+            let key = result.text.chars().take(100).collect::<String>();
             scores
                 .entry(key)
                 .and_modify(|(s, _)| *s += rrf_score)

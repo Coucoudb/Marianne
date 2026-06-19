@@ -39,3 +39,12 @@ Interface intégrée dans les paramètres pour télécharger et remplacer le mod
 
 La librairie `src/renderer/lib/api.ts` regroupe l'intégralité des appels REST.
 La librairie `src/renderer/lib/chat.ts` gère la connexion asynchrone SSE pour afficher les tokens d'IA au fur et à mesure de leur génération sans bloquer l'UI.
+
+### Authentification
+
+Toutes les requêtes vers les routes protégées du serveur doivent inclure le header :
+```
+Authorization: Bearer <clé-api>
+```
+
+La clé API est configurée par l'utilisateur dans les paramètres du client (URL du serveur + clé). Elle est stockée localement et attachée automatiquement par `api.ts` à chaque appel.

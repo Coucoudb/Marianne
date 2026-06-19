@@ -8,25 +8,25 @@
   import AgentsManager from './components/AgentsManager.svelte';
   import SkillsManager from './components/SkillsManager.svelte';
 
-  let serverConfig = {
+  let serverConfig = $state({
     host: 'localhost',
     port: 3000,
     protocol: 'http' as 'http' | 'https'
-  };
+  });
 
-  let connectionStatus: 'connected' | 'disconnected' | 'testing' = 'disconnected';
-  let errorMessage = '';
-  let appVersion = '';
-  let currentView: 'chat' | 'agents' | 'skills' | 'settings' = 'chat';
-  let settingsTab: 'connection' | 'profile' | 'models' = 'profile';
-  let sidebarCollapsed = false;
+  let connectionStatus: 'connected' | 'disconnected' | 'testing' = $state('disconnected');
+  let errorMessage = $state('');
+  let appVersion = $state('');
+  let currentView: 'chat' | 'agents' | 'skills' | 'settings' = $state('chat');
+  let settingsTab: 'connection' | 'profile' | 'models' = $state('profile');
+  let sidebarCollapsed = $state(false);
   let agentSubroute: string = $state('');
   let skillSubroute: string = $state('');
 
   // Chat state
-  let msgs: ChatMessage[] = [];
-  let conversationId: string | null = null;
-  let generating = false;
+  let msgs: ChatMessage[] = $state([]);
+  let conversationId: string | null = $state(null);
+  let generating = $state(false);
 
   // Conversations list (session-local)
   let conversations: Array<{
@@ -34,10 +34,10 @@
     preview: string;
     timestamp: number;
     messageCount: number;
-  }> = [];
+  }> = $state([]);
 
   // Profile state
-  let profile: UserProfile = {
+  let profile: UserProfile = $state({
     first_name: '',
     age: null,
     professional_status: null,
@@ -49,29 +49,29 @@
     gpu_selection: 'Auto',
     selected_model: null,
     updated_at: 0
-  };
-  let profileLoading = false;
-  let profileSaved = false;
+  });
+  let profileLoading = $state(false);
+  let profileSaved = $state(false);
 
   // Custom model download state
-  let downloadRepo = '';
-  let downloadFilename = '';
-  let downloadName = '';
-  let isDownloading = false;
+  let downloadRepo = $state('');
+  let downloadFilename = $state('');
+  let downloadName = $state('');
+  let isDownloading = $state(false);
   let downloadInterval: any;
 
   // Server system info
-  let systemInfo: SystemInfo | null = null;
+  let systemInfo: SystemInfo | null = $state(null);
 
   // Models state
-  let modelsStatus: ModelsStatus | null = null;
-  let modelsLoading = false;
-  let modelLoadingId: string | null = null;
+  let modelsStatus: ModelsStatus | null = $state(null);
+  let modelsLoading = $state(false);
+  let modelLoadingId: string | null = $state(null);
 
   // Workspace directory (bouton 📁 au-dessus du prompt)
-  let activeWorkspaceDir: string | null = null;
+  let activeWorkspaceDir: string | null = $state(null);
   // Agent actif (sélectionné depuis la gestion des agents)
-  let activeAgent: { id: string; name: string } | null = null;
+  let activeAgent: { id: string; name: string } | null = $state(null);
 
   onMount(async () => {
     // Load server config
@@ -124,7 +124,8 @@
 
     try {
       if (window.electronAPI) {
-        const result = await window.electronAPI.server.testConnection(serverConfig);
+        const configSnapshot = $state.snapshot(serverConfig);
+        const result = await window.electronAPI.server.testConnection(configSnapshot);
         connectionStatus = result.success ? 'connected' : 'disconnected';
         if (!result.success) {
           errorMessage = result.message || result.error || 'Échec de connexion';
@@ -149,7 +150,8 @@
   async function saveConfig() {
     try {
       if (window.electronAPI) {
-        await window.electronAPI.server.setConfig(serverConfig);
+        const configSnapshot = $state.snapshot(serverConfig);
+        await window.electronAPI.server.setConfig(configSnapshot);
       } else {
         localStorage.setItem('serverConfig', JSON.stringify(serverConfig));
       }
@@ -278,13 +280,13 @@
     };
     msgs = [...msgs, userMsg];
 
+    const newMsgId = crypto.randomUUID();
     const assistantMsg: ChatMessage = {
-      id: (Date.now() + 1).toString(),
+      id: newMsgId,
       role: 'assistant',
       content: '',
-      thinking: true,
-      deepThink,
-      thinkingPhase: 'Thinking...'
+      streaming: true,
+      thinking: deepThink
     };
     msgs = [...msgs, assistantMsg];
 
@@ -299,67 +301,65 @@
         deepThink,
         activeAgent?.id ?? null,
         (token) => {
+          const currentMsg = msgs[msgs.length - 1];
           if (tokenBuffer === '') {
-            assistantMsg.thinking = false;
-            assistantMsg.streaming = true;
-            msgs = msgs;
+            currentMsg.thinking = false;
+            currentMsg.streaming = true;
           }
           tokenBuffer += token;
-          assistantMsg.content = tokenBuffer;
-          msgs = msgs;
+          currentMsg.content = tokenBuffer;
         },
         (metadata) => {
+          const currentMsg = msgs[msgs.length - 1];
           if (metadata.assistant_message) {
-            assistantMsg.content = metadata.assistant_message;
+            currentMsg.content = metadata.assistant_message;
             if (metadata.tokens_generated && metadata.generation_time_ms) {
-              assistantMsg.stats = {
+              currentMsg.stats = {
                 tokens_generated: metadata.tokens_generated,
                 time_ms: metadata.generation_time_ms
               };
             }
           }
           if (metadata.score !== undefined) {
-            (assistantMsg as any).confidence = metadata.score;
+            (currentMsg as any).confidence = metadata.score;
           }
           // Recherche web : mettre à jour le label DeepThink
           if (metadata.status === 'started' || metadata.status === 'searching') {
-            assistantMsg.thinkingPhase = 'Searching...';
-            assistantMsg.webBadge = { text: 'Recherche web...', kind: 'searching' };
+            currentMsg.thinkingPhase = 'Searching...';
+            currentMsg.webBadge = { text: 'Recherche web...', kind: 'searching' };
           } else if (metadata.status === 'done') {
-            assistantMsg.thinkingPhase = 'Analyzing...';
-            if (assistantMsg.webBadge?.kind === 'searching') {
-              assistantMsg.webBadge = { text: `${metadata.sources_count ?? ''} source(s) trouvée(s)`, kind: 'done' };
+            currentMsg.thinkingPhase = 'Analyzing...';
+            if (currentMsg.webBadge?.kind === 'searching') {
+              currentMsg.webBadge = { text: `${metadata.sources_count ?? ''} source(s) trouvée(s)`, kind: 'done' };
             }
           }
           if (metadata.message && !metadata.status) {
-            assistantMsg.contradictionWarning = metadata.message;
+            currentMsg.contradictionWarning = metadata.message;
           }
-          msgs = msgs;
         },
         (error) => {
           errorMessage = error;
           generating = false;
         },
         (step) => {
-          if (!assistantMsg.thinkingSteps) assistantMsg.thinkingSteps = [];
-          assistantMsg.thinkingSteps = [...assistantMsg.thinkingSteps, step];
+          const currentMsg = msgs[msgs.length - 1];
+          if (!currentMsg.thinkingSteps) currentMsg.thinkingSteps = [];
+          currentMsg.thinkingSteps = [...currentMsg.thinkingSteps, step];
           // Mapper la phase DeepThink sur le label affiché
-          if (step.phase === 'decomposition') assistantMsg.thinkingPhase = 'Analyzing...';
-          else if (step.phase === 'thinking') assistantMsg.thinkingPhase = 'Computing...';
-          else if (step.phase === 'synthesis') assistantMsg.thinkingPhase = 'Synthesizing...';
-          msgs = msgs;
+          if (step.phase === 'decomposition') currentMsg.thinkingPhase = 'Analyzing...';
+          else if (step.phase === 'thinking') currentMsg.thinkingPhase = 'Computing...';
+          else if (step.phase === 'synthesis') currentMsg.thinkingPhase = 'Synthesizing...';
         }
       );
 
       conversationId = newConvId;
-      assistantMsg.streaming = false;
-      msgs = msgs;
+      msgs[msgs.length - 1].streaming = false;
 
       // Update conversations sidebar
       updateConversationsList(newConvId, prompt);
     } catch (error: any) {
       errorMessage = error.message || 'Erreur lors de la génération';
-      msgs = msgs.filter(m => m.id !== assistantMsg.id);
+      msgs = msgs.filter(m => m.id !== newMsgId);
     } finally {
       generating = false;
     }
@@ -370,7 +370,6 @@
     if (existing) {
       existing.timestamp = Date.now();
       existing.messageCount = msgs.length;
-      conversations = conversations;
     } else {
       conversations = [{
         id: convId,
@@ -449,7 +448,7 @@
       <div class="status-indicator" class:connected={connectionStatus === 'connected'}>
         {connectionStatus === 'connected' ? 'Connecté' : 'Déconnecté'}
       </div>
-      <button class="icon-button" on:click={() => { newConversation(); currentView = 'chat'; }} title="Nouvelle conversation" aria-label="Nouvelle conversation">
+      <button class="icon-button" onclick={() => { newConversation(); currentView = 'chat'; }} title="Nouvelle conversation" aria-label="Nouvelle conversation">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 20h9"/>
           <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
@@ -513,17 +512,17 @@
             <button
               class="settings-tab"
               class:active={settingsTab === 'profile'}
-              on:click={() => switchTab('profile')}
+              onclick={() => switchTab('profile')}
             >Profil</button>
             <button
               class="settings-tab"
               class:active={settingsTab === 'connection'}
-              on:click={() => switchTab('connection')}
+              onclick={() => switchTab('connection')}
             >Connexion</button>
             <button
               class="settings-tab"
               class:active={settingsTab === 'models'}
-              on:click={() => switchTab('models')}
+              onclick={() => switchTab('models')}
             >Modèles</button>
           </div>
           <div class="settings-body">
@@ -557,10 +556,10 @@
           </div>
 
           <div class="button-group">
-            <button on:click={testConnection} disabled={connectionStatus === 'testing'}>
+            <button onclick={testConnection} disabled={connectionStatus === 'testing'}>
               {connectionStatus === 'testing' ? 'Test...' : '🔌 Tester'}
             </button>
-            <button on:click={saveConfig} class="primary">
+            <button onclick={saveConfig} class="primary">
               💾 Sauvegarder
             </button>
           </div>
@@ -580,7 +579,7 @@
               <label for="gpu-sel">Sélection GPU</label>
               <select id="gpu-sel" 
                 value={typeof profile.gpu_selection === 'object' ? `Specific_${profile.gpu_selection.Specific}` : profile.gpu_selection} 
-                on:change={(e) => {
+                onchange={(e) => {
                   const val = e.currentTarget.value;
                   if (val.startsWith('Specific_')) {
                     profile.gpu_selection = { Specific: parseInt(val.split('_')[1], 10) };
@@ -591,7 +590,7 @@
                 <option value="Auto">Auto (GPU principal)</option>
                 <option value="AllGpus">Tous les GPU (Multi-GPU)</option>
                 {#if systemInfo && systemInfo.gpu_devices}
-                  {#each systemInfo.gpu_devices as gpu}
+                  {#each systemInfo.gpu_devices as gpu (gpu.index)}
                     <option value={`Specific_${gpu.index}`}>GPU #{gpu.index} — {gpu.name} ({gpu.vram_free_mb} Mo VRAM)</option>
                   {/each}
                 {/if}
@@ -629,7 +628,7 @@
               </div>
               {#if systemInfo.gpu_devices.length > 0}
                 <div class="section-label" style="margin-top: var(--spacing-md);">GPU compatibles llama-cpp</div>
-                {#each systemInfo.gpu_devices as gpu}
+                {#each systemInfo.gpu_devices as gpu (gpu.index)}
                   <div class="info-card">
                     <div class="info-card-label">GPU #{gpu.index}</div>
                     <div class="info-card-value">{gpu.name}</div>
@@ -695,7 +694,7 @@
 
 
             <div class="button-group">
-              <button on:click={saveProfile} class="primary">
+              <button onclick={saveProfile} class="primary">
                 {profileSaved ? '✅ Sauvegardé' : '💾 Sauvegarder le profil'}
               </button>
             </div>
@@ -725,7 +724,7 @@
                 Aucun modèle téléchargé
               </div>
             {:else}
-              {#each modelsStatus.downloaded_models as model}
+              {#each modelsStatus.downloaded_models as model (model.id)}
                 <div class="model-card" class:active={modelsStatus.loaded_model?.id === model.id}>
                   <div class="model-card-info">
                     <span class="model-card-name">{model.name}</span>
@@ -739,13 +738,13 @@
                         class="primary"
                         style="padding: 0.25rem 0.75rem; font-size: 0.75rem;"
                         disabled={modelLoadingId !== null}
-                        on:click={() => handleLoadModel(model.id)}
+                        onclick={() => handleLoadModel(model.id)}
                       >
                         {modelLoadingId === model.id ? 'Chargement...' : 'Charger'}
                       </button>
                       <button
                         style="padding: 0.25rem 0.75rem; font-size: 0.75rem; background: var(--surface-3); border: 1px solid #ff4444; color: #ff4444; cursor: pointer; border-radius: 4px;"
-                        on:click={() => handleDeleteModel(model.id)}
+                        onclick={() => handleDeleteModel(model.id)}
                       >
                         Supprimer
                       </button>
@@ -772,7 +771,7 @@
               <button 
                 class="primary" 
                 style="width: 100%; padding: 0.6rem; text-align: center;" 
-                on:click={handleReplaceModel} 
+                onclick={handleReplaceModel} 
                 disabled={isDownloading || !downloadRepo || !downloadFilename || !downloadName}
               >
                 {isDownloading ? '⏳ Téléchargement en cours... (ne fermez pas)' : 'Télécharger et Remplacer l\'Actif'}
@@ -780,7 +779,7 @@
             </div>
 
             <div class="button-group" style="margin-top: var(--spacing-xl);">
-              <button on:click={loadModelsStatus}>
+              <button onclick={loadModelsStatus}>
                 🔄 Actualiser
               </button>
             </div>

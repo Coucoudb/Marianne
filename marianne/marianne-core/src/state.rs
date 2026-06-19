@@ -1,4 +1,5 @@
 // src-tauri/src/state.rs
+use crate::auth::api_keys::ApiKeyDb;
 use crate::llm::engine::LlmEngine;
 use crate::network::connectivity::ConnectivityCache;
 use crate::profile::UserProfile;
@@ -46,6 +47,9 @@ pub struct AppState {
 
     /// Flag d'arrêt de génération — positionné par stop_generation
     pub abort_generation: Arc<AtomicBool>,
+
+    /// Base de données des clés API multi-utilisateurs
+    pub api_keys: Arc<ApiKeyDb>,
 }
 
 impl AppState {
@@ -62,6 +66,7 @@ impl AppState {
             connectivity: Arc::new(ConnectivityCache::new()),
             workspace: Arc::new(WorkspaceManager::new(&data_dir.join("workspace"))),
             abort_generation: Arc::new(AtomicBool::new(false)),
+            api_keys: Arc::new(ApiKeyDb::new(&data_dir.join("api_keys.db"))),
             data_dir,
         }
     }

@@ -36,6 +36,7 @@ pub struct MemoryNote {
 pub struct HistoryDb {
     db_path: std::path::PathBuf,
     initialized: AtomicBool,
+    key: [u8; 32],
 }
 
 impl HistoryDb {
@@ -43,6 +44,7 @@ impl HistoryDb {
         Self {
             db_path: db_path.to_path_buf(),
             initialized: AtomicBool::new(false),
+            key: crate::crypto::get_db_key(),
         }
     }
 
@@ -55,6 +57,7 @@ impl HistoryDb {
             "CREATE TABLE IF NOT EXISTS conversations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 conversation_id TEXT NOT NULL,
+                user_id TEXT NOT NULL DEFAULT 'default',
                 user_message TEXT NOT NULL,
                 assistant_message TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -63,8 +66,17 @@ impl HistoryDb {
         .execute(&pool)
         .await?;
 
+        // Migration : ajouter user_id si la table existait avant
+        Self::add_column_if_missing(&pool, "conversations", "user_id", "TEXT NOT NULL DEFAULT 'default'").await?;
+
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_conv_id ON conversations(conversation_id)",
+        )
+        .execute(&pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_conv_user ON conversations(user_id)",
         )
         .execute(&pool)
         .await?;
@@ -73,6 +85,7 @@ impl HistoryDb {
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS conversation_meta (
                 conversation_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL DEFAULT 'default',
                 title TEXT NOT NULL DEFAULT '',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -80,6 +93,9 @@ impl HistoryDb {
         )
         .execute(&pool)
         .await?;
+
+        // Migration : ajouter user_id si la table existait avant
+        Self::add_column_if_missing(&pool, "conversation_meta", "user_id", "TEXT NOT NULL DEFAULT 'default'").await?;
 
         // Table des mémoires persistantes (inter-sessions)
         sqlx::query(
@@ -97,6 +113,22 @@ impl HistoryDb {
 
         self.initialized.store(true, Ordering::SeqCst);
         tracing::info!("✅ Base de données historique initialisée");
+        Ok(())
+    }
+
+    /// Ajouter une colonne à une table si elle n'existe pas encore.
+    /// SQLite ne supporte pas `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`,
+    /// on ignore donc l'erreur si la colonne est déjà présente.
+    ///
+    /// # Security
+    /// SQLite does not support bound parameters for DDL identifiers, so `table`,
+    /// `column`, and `typedef` are interpolated directly into the SQL string.
+    /// This function is **private** and called exclusively with hard-coded string
+    /// literals — never with user-supplied input. Do not expose it publicly.
+    async fn add_column_if_missing(pool: &sqlx::SqlitePool, table: &str, column: &str, typedef: &str) -> Result<()> {
+        let _ = sqlx::query(&format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, typedef))
+            .execute(pool)
+            .await; // ignore l'erreur "duplicate column name"
         Ok(())
     }
 
@@ -124,28 +156,34 @@ impl HistoryDb {
     pub async fn save_turn(
         &self,
         conversation_id: &str,
+        user_id: &str,
         user_message: &str,
         assistant_message: &str,
     ) -> Result<()> {
         let pool = self.connect().await?;
 
+        let enc_user = crate::crypto::encrypt(&self.key, user_message)?;
+        let enc_assistant = crate::crypto::encrypt(&self.key, assistant_message)?;
+
         sqlx::query(
-            "INSERT INTO conversations (conversation_id, user_message, assistant_message) VALUES (?, ?, ?)",
+            "INSERT INTO conversations (conversation_id, user_id, user_message, assistant_message) VALUES (?, ?, ?, ?)",
         )
         .bind(conversation_id)
-        .bind(user_message)
-        .bind(assistant_message)
+        .bind(user_id)
+        .bind(&enc_user)
+        .bind(&enc_assistant)
         .execute(&pool)
         .await?;
 
         // Mettre à jour / créer la métadonnée de la conversation
         let title = generate_title(user_message);
         sqlx::query(
-            "INSERT INTO conversation_meta (conversation_id, title, created_at, updated_at)
-             VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            "INSERT INTO conversation_meta (conversation_id, user_id, title, created_at, updated_at)
+             VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
              ON CONFLICT(conversation_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP",
         )
         .bind(conversation_id)
+        .bind(user_id)
         .bind(&title)
         .execute(&pool)
         .await?;
@@ -158,20 +196,24 @@ impl HistoryDb {
     // ═══════════════════════════════════════════════════════════════════════
 
     /// Récupérer l'historique d'une conversation (format interne pour le prompt)
-    pub async fn get_conversation(&self, conversation_id: &str) -> Result<Vec<ConversationTurn>> {
+    pub async fn get_conversation(&self, conversation_id: &str, user_id: &str) -> Result<Vec<ConversationTurn>> {
         let pool = self.connect().await?;
         let rows = sqlx::query_as::<_, (String, String)>(
             "SELECT user_message, assistant_message FROM conversations
-             WHERE conversation_id = ? ORDER BY id ASC LIMIT 50",
+             WHERE conversation_id = ? AND user_id = ? ORDER BY id ASC LIMIT 50",
         )
         .bind(conversation_id)
+        .bind(user_id)
         .fetch_all(&pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|(user, assistant)| ConversationTurn { user, assistant })
-            .collect())
+        rows.into_iter()
+            .map(|(user, assistant)| {
+                let user = maybe_decrypt(&self.key, user)?;
+                let assistant = maybe_decrypt(&self.key, assistant)?;
+                Ok(ConversationTurn { user, assistant })
+            })
+            .collect()
     }
 
     /// Récupérer l'historique d'une conversation au format client
@@ -179,19 +221,23 @@ impl HistoryDb {
     pub async fn get_conversation_messages(
         &self,
         conversation_id: &str,
+        user_id: &str,
     ) -> Result<Vec<ConversationMessage>> {
         let pool = self.connect().await?;
         let rows = sqlx::query_as::<_, (String, String, String)>(
             "SELECT user_message, assistant_message, created_at FROM conversations
-             WHERE conversation_id = ? ORDER BY id ASC LIMIT 100",
+             WHERE conversation_id = ? AND user_id = ? ORDER BY id ASC LIMIT 100",
         )
         .bind(conversation_id)
+        .bind(user_id)
         .fetch_all(&pool)
         .await?;
 
         let mut messages = Vec::new();
         for (user, assistant, created_at) in rows {
             let ts = parse_sqlite_datetime(&created_at);
+            let user = maybe_decrypt(&self.key, user)?;
+            let assistant = maybe_decrypt(&self.key, assistant)?;
             messages.push(ConversationMessage {
                 role: "user".to_string(),
                 content: user,
@@ -207,7 +253,7 @@ impl HistoryDb {
     }
 
     /// Lister toutes les conversations avec résumé
-    pub async fn list_conversations(&self) -> Result<Vec<ConversationSummary>> {
+    pub async fn list_conversations(&self, user_id: &str) -> Result<Vec<ConversationSummary>> {
         let pool = self.connect().await?;
 
         let rows = sqlx::query_as::<_, (String, String, String, i32)>(
@@ -218,25 +264,29 @@ impl HistoryDb {
                 COUNT(*) as msg_count
              FROM conversations c
              LEFT JOIN conversation_meta m ON c.conversation_id = m.conversation_id
+             WHERE c.user_id = ?
              GROUP BY c.conversation_id
              ORDER BY last_at DESC
              LIMIT 50",
         )
+        .bind(user_id)
         .fetch_all(&pool)
         .await?;
 
         let mut summaries = Vec::new();
         for (conv_id, title, last_at, msg_count) in rows {
             // Récupérer le premier message pour le preview
-            let first_msg = sqlx::query_as::<_, (String,)>(
+            let first_msg_raw = sqlx::query_as::<_, (String,)>(
                 "SELECT user_message FROM conversations
-                 WHERE conversation_id = ? ORDER BY id ASC LIMIT 1",
+                 WHERE conversation_id = ? AND user_id = ? ORDER BY id ASC LIMIT 1",
             )
             .bind(&conv_id)
+            .bind(user_id)
             .fetch_optional(&pool)
             .await?
             .map(|(m,)| m)
             .unwrap_or_default();
+            let first_msg = maybe_decrypt(&self.key, first_msg_raw).unwrap_or_default();
 
             let ts = parse_sqlite_datetime(&last_at);
             summaries.push(ConversationSummary {
@@ -315,7 +365,8 @@ impl HistoryDb {
 
         // Construire un résumé léger de chaque conversation récente
         let mut summaries = Vec::new();
-        for (conv_id, first_msg) in rows {
+        for (conv_id, first_msg_raw) in rows {
+            let first_msg = maybe_decrypt(&self.key, first_msg_raw).unwrap_or_default();
             let preview: String = first_msg.chars().take(60).collect();
             let count = sqlx::query_as::<_, (i32,)>(
                 "SELECT COUNT(*) FROM conversations WHERE conversation_id = ?",
@@ -336,6 +387,15 @@ impl HistoryDb {
 // ═══════════════════════════════════════════════════════════════════════════
 // Fonctions utilitaires
 // ═══════════════════════════════════════════════════════════════════════════
+
+/// Decrypt `s` if it looks encrypted; return it as-is for backward-compat plaintext rows.
+fn maybe_decrypt(key: &[u8; 32], s: String) -> Result<String> {
+    if crate::crypto::is_encrypted(&s) {
+        crate::crypto::decrypt(key, &s)
+    } else {
+        Ok(s)
+    }
+}
 
 /// Générer un titre court à partir du premier message
 fn generate_title(message: &str) -> String {

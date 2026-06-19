@@ -40,6 +40,13 @@ serde_yaml = "0.9"
 # Glob pattern matching (scope des skills)
 glob = "0.3"
 
+# Chiffrement au repos (historique SQLite)
+aes-gcm = "0.10"
+base64 = "0.22"
+sha2 = "0.10"
+gethostname = "0.4"
+rand = "0.8"
+
 # Utilitaires
 anyhow = "1"
 tracing = "0.1"
@@ -61,8 +68,8 @@ regex-lite = "0.1"
 # Déduplication RAG
 dashmap = "6"
 
-# Vérification intégrité modèles
-sha2 = "0.10"
+# Analyse de documents
+pdf-extract = "0.7"
 
 # Analyse de documents
 pdf-extract = "0.7"

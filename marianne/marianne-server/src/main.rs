@@ -1,6 +1,7 @@
 // marianne-server/src/main.rs
 // Point d'entrée du serveur HTTP Axum.
 
+mod middleware;
 mod routes;
 mod state;
 
@@ -27,6 +28,12 @@ struct Cli {
     /// Chemin vers la clé privée TLS (PEM). Requis si --tls-cert est fourni.
     #[arg(long)]
     tls_key: Option<std::path::PathBuf>,
+
+    /// Clé admin initiale à insérer si la table api_keys est vide.
+    /// Format recommandé : "mk_<uuid>". Affichée en log une seule fois au démarrage.
+    /// Peut aussi être définie via MARIANNE_BOOTSTRAP_ADMIN_KEY.
+    #[arg(long, env = "MARIANNE_BOOTSTRAP_ADMIN_KEY")]
+    bootstrap_admin_key: Option<String>,
 }
 
 #[tokio::main]
@@ -64,6 +71,23 @@ async fn main() -> Result<()> {
 
     // Initialiser la base de données historique (crée les tables si absentes)
     core_state.history.initialize().await?;
+
+    // Initialiser la base de données des clés API
+    core_state.api_keys.initialize().await?;
+
+    // Bootstrap : insérer la première clé admin si la table est vide
+    if let Some(bootstrap_key) = cli.bootstrap_admin_key {
+        let all = core_state.api_keys.list_all().await?;
+        if all.is_empty() {
+            core_state
+                .api_keys
+                .insert(&bootstrap_key, "admin", "bootstrap", marianne_core::auth::api_keys::Role::Admin)
+                .await?;
+            tracing::info!("✅ Clé admin initiale insérée (user_id=admin, role=admin)");
+        } else {
+            tracing::debug!("Bootstrap ignoré : des clés existent déjà");
+        }
+    }
 
     // Installation et configuration automatique au démarrage
     if let Err(e) = marianne_core::setup::ensure_model_ready(&core_state).await {

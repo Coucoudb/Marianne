@@ -6,9 +6,10 @@
 //   es.addEventListener('stream-token', e => append(e.data));
 //   es.addEventListener('generation-done', e => finalize(JSON.parse(e.data)));
 
+use crate::middleware::auth::UserId;
 use crate::state::ServerState;
 use axum::{
-    extract::State,
+    extract::{Extension, State},
     response::sse::{Event, Sse},
     Json,
 };
@@ -21,9 +22,13 @@ use tokio_stream::StreamExt as _;
 
 pub async fn chat_handler(
     State(server): State<ServerState>,
-    Json(request): Json<ChatRequest>,
+    Extension(user): Extension<UserId>,
+    Json(mut request): Json<ChatRequest>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
+
+    // Injecter le user_id provenant du middleware d'auth
+    request.user_id = Some(user.0);
 
     let (tx, rx) = mpsc::channel::<ChatEvent>(64);
     let core = (*server.core).clone();

@@ -5,12 +5,15 @@ import path from 'path';
 export function registerFileHandlers(): void {
   // Open file dialog
   ipcMain.handle('file:openDialog', async (_event, options) => {
+    const properties = options?.properties || ['openFile', 'multiSelections'];
+    const isDirectory = properties.includes('openDirectory');
+
     const result = await dialog.showOpenDialog({
-      properties: ['openFile', 'multiSelections'],
-      filters: options?.filters || [
+      properties,
+      filters: isDirectory ? undefined : (options?.filters || [
         { name: 'Documents', extensions: ['pdf', 'txt', 'md', 'doc', 'docx'] },
         { name: 'Tous les fichiers', extensions: ['*'] }
-      ]
+      ])
     });
     return result.filePaths;
   });

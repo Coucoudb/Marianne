@@ -81,7 +81,7 @@ impl Default for EngineConfig {
             context_length: 4096,
             temperature: 0.15,
             top_p: 0.9,
-            repeat_penalty: 1.15,
+            repeat_penalty: 1.05, // 1.15 is too high and breaks CoT/Deep Think, leading to gibberish
             repeat_last_n: 64,
             n_gpu_layers: 999,
         }

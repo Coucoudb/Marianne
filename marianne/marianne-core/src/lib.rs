@@ -1,4 +1,6 @@
+pub mod auth;
 pub mod corpus;
+pub mod crypto;
 pub mod documents;
 pub mod history;
 pub mod llm;
