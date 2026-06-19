@@ -71,9 +71,6 @@ dashmap = "6"
 # Analyse de documents
 pdf-extract = "0.7"
 
-# Analyse de documents
-pdf-extract = "0.7"
-
 [features]
 default = ["fastembed", "vectordb"]
 vectordb = ["dep:lancedb", "dep:arrow-array", "dep:arrow-schema"]
